@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "870960416454",
+    "project_id": "cuidar-huellitas",
+    "storage_bucket": "cuidar-huellitas.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:870960416454:android:423d8a472b9f7ad9b0f9c7",
+        "android_client_info": {
+          "package_name": "com.example.cuidar_huellitas"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCo-nVbdAd25AW3hJVuibxTZDd-Kk4ga50"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
