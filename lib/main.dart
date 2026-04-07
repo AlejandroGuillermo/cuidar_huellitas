@@ -1,9 +1,7 @@
-//import 'package:cuidar_huellitas/screens/adopcion_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
-//import 'screens/register_screen.dart';
-import 'screens/login_screen.dart';
+import 'core/app_router.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,15 +16,16 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return MaterialApp.router(
       title: 'CuidARHuellitas',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8AE670)),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF8AE670),
+        ),
         fontFamily: 'Nunito',
       ),
-      //home: const RegisterScreen(),
-      home: const LoginScreen(),
+      routerConfig: appRouter,
     );
   }
 }

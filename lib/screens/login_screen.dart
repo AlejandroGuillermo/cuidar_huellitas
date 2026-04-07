@@ -1,7 +1,8 @@
 import 'package:cuidar_huellitas/core/app_colors.dart';
+import 'package:cuidar_huellitas/core/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'register_screen.dart';
+import 'package:go_router/go_router.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -20,6 +21,9 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _cargando = false;
   String? _errorMessage;
 
+//Para rastrear errores específicos del servidor
+  String? _errorFirebaseCorreo;
+  String? _errorFirebasePassword;
 
   @override
   void dispose() {
@@ -29,19 +33,27 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   String? _validarEmail(String? value) {
+    // Si Firebase nos dio error de correo, mostramos este primero
+    if (_errorFirebaseCorreo != null) return 'Correo incorrecto revisa tu email';
+    // Validación local normal
     if (value == null || value.trim().isEmpty) {
       return 'El correo es requerido';
     }
-    if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value)) {
-      return 'Ingresa un correo válido';
+    // Expresión regular simple para validar formato de correo
+    if (!RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$').hasMatch(value)) {
+      return 'Ingresa un correo válido (ej. nombre@correo.com)';
     }
     return null;
   }
 
   String? _validarPassword(String? value) {
+    // Si Firebase nos dio error de contraseña, mostramos este primero
+    if (_errorFirebasePassword != null) return 'La contraseña es incorrecta';
+    // Validación local normal
     if (value == null || value.isEmpty) {
       return 'La contraseña es requerida';
     }
+
     if (value.length < 6) {
       return 'Mínimo 6 caracteres';
     }
@@ -49,6 +61,11 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _iniciarSesion() async {
+    // Limpiamos errores específicos antes de validar
+    setState(() {
+      _errorFirebaseCorreo = null;
+      _errorFirebasePassword = null;
+    });
     if (!_formKey.currentState!.validate()) return;
 
     setState(() {
@@ -69,19 +86,41 @@ class _LoginScreenState extends State<LoginScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('¡Sesion iniciada!')),
         );
+        //Aquí podrías usar: context.go(AppRoutes.home);
+        context.go('/adopcion');
       }
     } on FirebaseAuthException catch (e) {
       String mensaje = 'Error al iniciar sesión';
-      if (e.code == 'user-not-found') {
-        mensaje = 'Usuario no encontrado';
+      
+      if (e.code == 'invalid-credential') {
+        // Error genérico de seguridad moderno (Falla uno de los dos, pero no sabemos cuál)
+        mensaje = 'Correo o contraseña incorrectos';
+        _errorFirebaseCorreo = mensaje;   // Pintamos el correo
+        _errorFirebasePassword = mensaje; // Pintamos la contraseña
+        _passwordController.clear();      // Limpiamos la contraseña
+        
+      } else if (e.code == 'user-not-found') {
+        // El correo no existe en la base de datos
+        mensaje = 'Este correo no está registrado';
+        _errorFirebaseCorreo = mensaje;   // SOLO pintamos el correo de rojo
+        
       } else if (e.code == 'wrong-password') {
-        mensaje = 'Contraseña incorrecta';
+        // El correo existe, pero la contraseña está mal
+        mensaje = 'La contraseña es incorrecta';
+        _errorFirebasePassword = mensaje; // SOLO pintamos la contraseña de rojo
+        _passwordController.clear();      // Limpiamos la contraseña
+        
       } else if (e.code == 'invalid-email') {
-        mensaje = 'Correo inválido';
+        mensaje = 'Formato de correo inválido';
+        _errorFirebaseCorreo = mensaje; 
+        
       } else if (e.code == 'user-disabled') {
-        mensaje = 'Usuario deshabilitado';
+        mensaje = 'Usuario deshabilitado por el administrador';
+        _errorFirebaseCorreo = mensaje; 
       }
+      
       setState(() => _errorMessage = mensaje);
+      _formKey.currentState!.validate(); // Revalidamos para mostrar el rojo en los campos afectados
     } catch (e) {
       setState(() => _errorMessage = 'Error inesperado: $e');
     } finally {
@@ -259,6 +298,12 @@ class _LoginScreenState extends State<LoginScreen> {
       keyboardType: TextInputType.emailAddress,
       validator: _validarEmail,
       textInputAction: TextInputAction.next,
+      onChanged: (value) {
+        if (_errorFirebaseCorreo != null) {
+          setState(() => _errorFirebaseCorreo = null);
+          _formKey.currentState!.validate();
+        }
+      },
       decoration: _inputDecorationStyle('Correo electrónico'),
     );
   }
@@ -270,6 +315,12 @@ class _LoginScreenState extends State<LoginScreen> {
       validator: _validarPassword,
       textInputAction: TextInputAction.done,
       onFieldSubmitted: (_) => _iniciarSesion(),
+      onChanged: (value) {
+        if (_errorFirebasePassword != null) {
+          setState(() => _errorFirebasePassword = null);
+          _formKey.currentState!.validate();
+        }
+      },
       decoration: _inputDecorationStyle('Contraseña').copyWith(
         suffixIcon: Padding(
           padding: const EdgeInsets.only(right: 8.0),
@@ -326,12 +377,7 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
       onPressed: () {
         // Navegamos a la pantalla de registro
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const RegisterScreen(), // <-- OJO: Cambia "RegistroScreen" por el nombre real de tu clase de registro
-          ),
-        );
+        context.push(AppRoutes.register);
       },
       child: const Text(
         'Crear una cuenta',
