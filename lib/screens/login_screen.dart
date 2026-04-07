@@ -1,6 +1,7 @@
 import 'package:cuidar_huellitas/core/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -66,7 +67,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('¡Bienvenido! 🐶')),
+          const SnackBar(content: Text('¡Sesion iniciada!')),
         );
       }
     } on FirebaseAuthException catch (e) {
@@ -324,7 +325,13 @@ class _LoginScreenState extends State<LoginScreen> {
         padding: const EdgeInsets.symmetric(vertical: 14),
       ),
       onPressed: () {
-        // TODO: Navegar a pantalla de registro
+        // Navegamos a la pantalla de registro
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const RegisterScreen(), // <-- OJO: Cambia "RegistroScreen" por el nombre real de tu clase de registro
+          ),
+        );
       },
       child: const Text(
         'Crear una cuenta',
