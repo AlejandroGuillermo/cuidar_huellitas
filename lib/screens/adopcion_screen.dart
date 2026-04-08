@@ -1,6 +1,11 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:go_router/go_router.dart';
 import '../core/app_colors.dart';
+import '../core/app_router.dart';
+import '../Models/mascota_model.dart';
 
 class AdopcionScreen extends StatefulWidget {
   const AdopcionScreen({super.key});
@@ -12,6 +17,7 @@ class AdopcionScreen extends StatefulWidget {
 class _AdopcionScreenState extends State<AdopcionScreen>
     with TickerProviderStateMixin {
   String _tipoSeleccionado = 'perro';
+  bool _guardando = false;
   
 
   // ── Animaciones ────────────────────────────────────────
@@ -242,7 +248,7 @@ class _AdopcionScreenState extends State<AdopcionScreen>
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: _adoptar,
+              onPressed: _guardando ? null : _adoptar,
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.azulPrincipal,
                 foregroundColor: Colors.white,
@@ -251,7 +257,13 @@ class _AdopcionScreenState extends State<AdopcionScreen>
                     borderRadius: BorderRadius.circular(18)),
                 elevation: 0,
               ),
-              child: Text(
+              child: _guardando 
+                  ? const SizedBox(
+                      height: 20, 
+                      width: 20, 
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+                    )
+                  : Text(
                 'Adoptar a $_nombreActual ✨',
                 style: TextStyle(
                     fontSize: isSmall ? 14 : 16, fontWeight: FontWeight.w700),
@@ -532,33 +544,74 @@ class _AdopcionScreenState extends State<AdopcionScreen>
   }
 
   // ── Adoptar ────────────────────────────────────────────
-  void _adoptar() {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('¡Felicidades! 🎉'),
-        content: Text(
-          'Adoptaste a $_nombreActual.\n'
-          'Es un $_tipoSeleccionado $_personalidadActual.\n\n'
-          '${_personalidadInfo['descripcion']}',
-        ),
-        actions: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.azulPrincipal,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-            ),
-            onPressed: () {
-              Navigator.pop(context);
-              // context.go(AppRoutes.home)
-            },
-            child: const Text('¡Vamos! 🐾',
-                style: TextStyle(color: Colors.white)),
+  Future<void> _adoptar() async {
+    setState(() => _guardando = true); // Mostramos el loader
+
+    try {
+      // 1. Obtenemos el ID del usuario que está usando la app
+      final userId = FirebaseAuth.instance.currentUser?.uid;
+      
+      if (userId == null) {
+        throw Exception('No hay un usuario con sesión iniciada');
+      }
+
+      // 2. Preparamos la ruta en Firestore: usuarios -> [ID] -> mascotas
+      final nuevaMascotaRef = FirebaseFirestore.instance
+          .collection('usuarios')
+          .doc(userId)
+          .collection('mascotas')
+          .doc(); // Al dejar doc() vacío, Firebase crea un ID único y aleatorio para la mascota
+
+      // 3. Empaquetamos los datos en tu MascotaModel
+      final nuevaMascota = MascotaModel(
+        idMascota: nuevaMascotaRef.id,
+        nombreMascota: _nombreActual,
+        tipoMascota: _tipoSeleccionado,
+        rasgo: _personalidadActual,
+        ultimaInteraccion: DateTime.now(), // Inicializamos el reloj para la IA
+      );
+
+      // 4. Lo mandamos a la nube usando toFirestore()
+      await nuevaMascotaRef.set(nuevaMascota.toFirestore());
+
+      if (!mounted) return;
+
+      // 5. ¡Éxito! Mostramos el diálogo de celebración
+      showDialog(
+        context: context,
+        barrierDismissible: false, // Obliga al usuario a tocar el botón "¡Vamos!"
+        builder: (_) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('¡Felicidades! 🎉'),
+          content: Text(
+            'Adoptaste a $_nombreActual.\n'
+            'Es un $_tipoSeleccionado $_personalidadActual.\n\n'
+            '${_personalidadInfo['descripcion']}',
           ),
-        ],
-      ),
-    );
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.azulPrincipal,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () {
+                Navigator.pop(context); // Cierra el diálogo
+                context.go(AppRoutes.home); // Descomenta esto cuando tengas tu HomeScreen listo
+              },
+              child: const Text('¡Vamos! 🐾',
+                  style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      // Si algo falla (ej. se va el internet), le avisamos al usuario
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Hubo un error al adoptar: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _guardando = false); // Ocultamos el loader
+    }
   }
 }
