@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import '../screens/login_screen.dart';
 import '../screens/register_screen.dart';
 import '../screens/adopcion_screen.dart';
+import '../screens/home_screen.dart';
 
 
 // ── Nombres de rutas como constantes ──────────────────────
@@ -66,7 +67,7 @@ final appRouter = GoRouter(
         GoRoute(
           path: AppRoutes.home,
           name: 'home',
-          builder: (context, state) => const Placeholder(), // TODO: HomeScreen
+          builder: (context, state) => const HomeScreen(), // TODO: HomeScreen
           routes: [
             GoRoute(
               path: 'mascota/ar',
