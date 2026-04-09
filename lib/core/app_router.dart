@@ -67,7 +67,7 @@ final appRouter = GoRouter(
         GoRoute(
           path: AppRoutes.home,
           name: 'home',
-          builder: (context, state) => const HomeScreen(), // TODO: HomeScreen
+          builder: (context, state) => const HomeScreen(),
           routes: [
             GoRoute(
               path: 'mascota/ar',

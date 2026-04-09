@@ -87,7 +87,8 @@ class _LoginScreenState extends State<LoginScreen> {
           const SnackBar(content: Text('¡Sesion iniciada!')),
         );
         //Aquí podrías usar: context.go(AppRoutes.home);
-        context.go('/adopcion');
+        //context.go('/adopcion');
+        context.go(AppRoutes.home);
       }
     } on FirebaseAuthException catch (e) {
       String mensaje = 'Error al iniciar sesión';

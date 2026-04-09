@@ -1,35 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
-
-// --- Modelos de Datos ---
-class PetStats {
-  int salud;
-  int energia;
-  int hambre;
-  int limpieza;
-  int afecto;
-
-  PetStats({
-    required this.salud,
-    required this.energia,
-    required this.hambre,
-    required this.limpieza,
-    required this.afecto,
-  });
-}
-
-class Pet {
-  String nombre;
-  String tipo; // 'dog' o 'cat'
-  PetStats stats;
-
-  Pet({
-    required this.nombre,
-    required this.tipo,
-    required this.stats,
-  });
-}
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../core/app_colors.dart';
+import '../Models/mascota_model.dart';
 
 // --- Pantalla Principal ---
 class HomeScreen extends StatefulWidget {
@@ -41,7 +16,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // Estado de la mascota
-  late Pet pet;
+  MascotaModel? mascota;
+  bool isLoading = true; // true = cargando datos de Firestore, false = listo para mostrar
   String? showFeedback;
   Timer? _feedbackTimer;
   bool menuOpen = false;
@@ -60,12 +36,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+
+    _cargarMascota();
     
     // Inicializar mascota
-    pet = Pet(
-      nombre: 'Max',
-      tipo: 'dog',
-      stats: PetStats(salud: 85, energia: 60, hambre: 45, limpieza: 70, afecto: 90),
+    mascota = MascotaModel(
+      idMascota: 'mock_id_123',
+      nombreMascota: 'Max',
+      tipoMascota: 'perro',
+      ultimaInteraccion: DateTime.now(),
+      nivelSalud: 85,
+      nivelEnergia: 60,
+      nivelHambre: 45,
+      nivelLimpieza: 70,
+      nivelAfecto: 90,
     );
 
     // Configurar animación de flotación (y: [0, -20, 0])
@@ -112,12 +96,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     } else {
       if (_cameras != null && _cameras!.isNotEmpty) {
         // Buscar cámara frontal
-        final frontCamera = _cameras!.firstWhere(
-          (c) => c.lensDirection == CameraLensDirection.front,
+        final backCamera = _cameras!.firstWhere(
+          (c) => c.lensDirection == CameraLensDirection.back,
           orElse: () => _cameras!.first,
         );
         
-        _cameraController = CameraController(frontCamera, ResolutionPreset.high);
+        _cameraController = CameraController(backCamera, ResolutionPreset.high);
         try {
           await _cameraController!.initialize();
           setState(() {
@@ -130,31 +114,99 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
+  // ── Función para descargar la mascota ───────────────────
+  Future<void> _cargarMascota() async {
+    try {
+      // OBTENER EL USUARIO
+      final String? userId = FirebaseAuth.instance.currentUser?.uid;
+
+      if (userId == null) {
+        setState(() => isLoading = false); // ← agregar esto
+      return;
+}
+
+      // HACER LA CONSULTA A FIRESTORE
+      // Entramos al documento del usuario y luego a SU colección de mascotas
+      final snapshot = await FirebaseFirestore.instance
+        .collection('usuarios')
+        .doc(userId) 
+        .collection('mascotas')
+        .where('activa', isEqualTo: true)
+        .limit(1)
+        .get();
+
+      if (snapshot.docs.isNotEmpty) {
+        // Usamos la magia de tu fromFirestore
+        setState(() {
+          mascota = MascotaModel.fromFirestore(snapshot.docs.first);
+          isLoading = false;
+        });
+      } else {
+        // Si no tiene mascota activa, podríamos redirigir a AdopcionScreen
+        debugPrint("El usuario $userId no tiene mascota activa.");
+        setState(() {
+          mascota = MascotaModel(
+            idMascota: 'mock_123',
+            nombreMascota: 'Max (Prueba)',
+            tipoMascota: 'perro',
+            ultimaInteraccion: DateTime.now(),
+            nivelSalud: 100,
+            nivelEnergia: 100,
+            nivelHambre: 100,
+            nivelLimpieza: 100,
+            nivelAfecto: 100,
+          );
+          isLoading = false; // Quitamos la pantalla de carga
+        });
+        // context.go('/adopcion'); 
+      }
+    } catch (e) {
+      debugPrint("Error al cargar la mascota: $e");
+      setState(() => isLoading = false);
+    }
+  }
+
   void _handleAction(String action) {
+    if (mascota == null) return;
     setState(() {
       switch (action) {
         case 'alimentar':
-          pet.stats.hambre = (pet.stats.hambre + 25).clamp(0, 100);
-          pet.stats.afecto = (pet.stats.afecto + 5).clamp(0, 100);
+          mascota = mascota!.copyWith(
+            nivelHambre: (mascota!.nivelHambre + 25).clamp(0, 100),
+            nivelAfecto: (mascota!.nivelAfecto + 5).clamp(0, 100),
+            ultimaInteraccion: DateTime.now(),
+          );
           showFeedback = '¡Ñam ñam! 😋';
           break;
         case 'jugar':
-          pet.stats.energia = (pet.stats.energia - 15).clamp(0, 100);
-          pet.stats.afecto = (pet.stats.afecto + 20).clamp(0, 100);
-          pet.stats.hambre = (pet.stats.hambre - 10).clamp(0, 100);
+          mascota = mascota!.copyWith(
+            nivelEnergia: (mascota!.nivelEnergia - 15).clamp(0, 100),
+            nivelAfecto: (mascota!.nivelAfecto + 20).clamp(0, 100),
+            nivelHambre: (mascota!.nivelHambre - 10).clamp(0, 100),
+            ultimaInteraccion: DateTime.now(),
+          );
           showFeedback = '¡Qué divertido! 🎉';
           break;
         case 'dormir':
-          pet.stats.energia = (pet.stats.energia + 30).clamp(0, 100);
+          mascota = mascota!.copyWith(
+            nivelEnergia: (mascota!.nivelEnergia + 30).clamp(0, 100),
+            ultimaInteraccion: DateTime.now(),
+          );
           showFeedback = '💤 Zzz...';
           break;
         case 'banar':
-          pet.stats.limpieza = (pet.stats.limpieza + 30).clamp(0, 100);
-          pet.stats.afecto = (pet.stats.afecto + 10).clamp(0, 100);
+          mascota = mascota!.copyWith(
+            nivelLimpieza: (mascota!.nivelLimpieza + 30).clamp(0, 100),
+            nivelAfecto: (mascota!.nivelAfecto + 10).clamp(0, 100),
+            ultimaInteraccion: DateTime.now(),
+          );
           showFeedback = '¡Qué limpio! ✨';
           break;
         case 'curar':
-          pet.stats.salud = (pet.stats.salud + 25).clamp(0, 100);
+          mascota = mascota!.copyWith(
+            nivelSalud: (mascota!.nivelSalud + 25).clamp(0, 100),
+            ultimaInteraccion: DateTime.now(),
+          );
           showFeedback = '¡Me siento mejor! 💊';
           break;
       }
@@ -177,11 +229,70 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  // Función para mostrar el mapa de huellas
+  void _mostrarMapaHuella(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min, 
+              children: [
+                const Text(
+                  '🐾Mapa de Acciones🐾',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.azulPrincipal, // Tu azul
+                  ),
+                ),
+                const SizedBox(height: 24),
+                // Aquí llamamos al widget que dibuja los deditos
+                const SizedBox(
+                  width: 300,
+                  height: 300,
+                  child: PawMapWidget(),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final petEmoji = pet.tipo == 'cat' ? '🐱' : '🐶';
+
+    if (isLoading || mascota == null) {
+      return const Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: Color(0xFF708BE6)),
+              SizedBox(height: 16),
+              Text("Despertando mascota...", style: TextStyle(color: Colors.grey)),
+            ],
+          ),
+        ),
+      );
+    }
+    final petEmoji = mascota!.tipoMascota.toLowerCase() == 'gato' ? '🐱' : '🐶';
 
     return Scaffold(
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _mostrarMapaHuella(context),
+        backgroundColor: AppColors.verdeFondo, // por el momento, luego lo personalizamos
+        elevation: 8,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+        child: const Text('🐾', style: TextStyle(fontSize: 28)),
+      ),
       body: Stack(
         children: [
           // 1. Fondo Degradado o Cámara
@@ -222,25 +333,30 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        '🐾 ${pet.nombre}',
-                        style: const TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF708BE6),
+                      Expanded(
+                        child: Text(
+                          '🐾 ${mascota!.nombreMascota}',
+                          style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF708BE6),
+                          ),
+                          overflow: TextOverflow.ellipsis, // Agrega puntos suspensivos si es muy largo
+                          maxLines: 1, // Obliga a que se quede en una sola línea
                         ),
                       ),
+                      const SizedBox(width: 8),
                       Row(
                         children: [
                           _HeaderButton(
                             icon: cameraActive ? Icons.videocam_off : Icons.camera_alt,
-                            color: cameraActive ? const Color(0xFFF07A94) : const Color(0xFF708BE6),
+                            color: cameraActive ? AppColors.rosa : AppColors.azulPrincipal,
                             onTap: _toggleCamera,
                           ),
                           const SizedBox(width: 12),
                           _HeaderButton(
                             icon: Icons.menu,
-                            color: const Color(0xFF708BE6),
+                            color: AppColors.azulPrincipal,
                             onTap: () => setState(() => menuOpen = true),
                           ),
                         ],
@@ -311,72 +427,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
 
                 // Panel Inferior de Acciones
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.9),
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(40)),
-                    boxShadow: [
-                      BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 20)
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      const Text(
-                        '¿Qué quieres hacer?',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF708BE6),
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          ActionButton(
-                            emoji: '🍖',
-                            label: 'Alimentar',
-                            colors: const [Color(0xFFA3FF88), Color(0xFF8AE670)],
-                            onTap: () => _handleAction('alimentar'),
-                          ),
-                          ActionButton(
-                            emoji: '🎾',
-                            label: 'Jugar',
-                            colors: const [Color(0xFF8AE670), Color(0xFFA3FF88)],
-                            onTap: () => _handleAction('jugar'),
-                          ),
-                          ActionButton(
-                            emoji: '😴',
-                            label: 'Dormir',
-                            colors: const [Color(0xFF8AA2FF), Color(0xFF708BE6)],
-                            onTap: () => _handleAction('dormir'),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          ActionButton(
-                            emoji: '🛁',
-                            label: 'Bañar',
-                            colors: const [Color(0xFF708BE6), Color(0xFF8AA2FF)],
-                            onTap: () => _handleAction('banar'),
-                          ),
-                          const SizedBox(width: 32),
-                          ActionButton(
-                            emoji: '💊',
-                            label: 'Curar',
-                            colors: const [Color(0xFFF07A94), Color(0xFFF07A94)],
-                            onTap: () => _handleAction('curar'),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
+                
               ],
             ),
           ),
@@ -401,7 +452,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   Container(
                     padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 16, bottom: 16, left: 24, right: 24),
                     decoration: const BoxDecoration(
-                      gradient: LinearGradient(colors: [Color(0xFF708BE6), Color(0xFF8AA2FF)]),
+                      gradient: LinearGradient(colors: [AppColors.azulPrincipal, AppColors.azulClaro]),
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -425,15 +476,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     child: ListView(
                       padding: const EdgeInsets.all(24),
                       children: [
-                        StatBar(icon: Icons.favorite, label: 'Salud', value: pet.stats.salud, color: const Color(0xFFF07A94)),
+                        StatBar(icon: Icons.favorite, label: 'Salud', value: mascota!.nivelSalud, color: AppColors.nivelSalud),
                         const SizedBox(height: 24),
-                        StatBar(icon: Icons.bolt, label: 'Energía', value: pet.stats.energia, color: const Color(0xFF8AE670)),
+                        StatBar(icon: Icons.bolt, label: 'Energía', value: mascota!.nivelEnergia, color: AppColors.nivelEnergia),
                         const SizedBox(height: 24),
-                        StatBar(icon: Icons.restaurant, label: 'Hambre', value: pet.stats.hambre, color: const Color(0xFFA3FF88)),
+                        StatBar(icon: Icons.restaurant, label: 'Hambre', value: mascota!.nivelHambre, color: AppColors.nivelHambre),
                         const SizedBox(height: 24),
-                        StatBar(icon: Icons.water_drop, label: 'Limpieza', value: pet.stats.limpieza, color: const Color(0xFF708BE6)),
+                        StatBar(icon: Icons.water_drop, label: 'Limpieza', value: mascota!.nivelLimpieza, color: AppColors.nivelLimpieza),
                         const SizedBox(height: 24),
-                        StatBar(icon: Icons.auto_awesome, label: 'Afecto', value: pet.stats.afecto, color: const Color(0xFF8AA2FF)),
+                        StatBar(icon: Icons.auto_awesome, label: 'Afecto', value: mascota!.nivelAfecto, color: AppColors.nivelAfecto),
                       ],
                     ),
                   )
@@ -448,7 +499,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 }
 
 // --- Componentes Reutilizables ---
-
+// Barra de estadísticas con icono, etiqueta, valor numérico y barra de progreso
 class StatBar extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -492,7 +543,7 @@ class StatBar extends StatelessWidget {
     );
   }
 }
-
+// Botón circular con emoji para las acciones principales (alimentar, jugar, etc.)
 class ActionButton extends StatefulWidget {
   final String emoji;
   final String label;
@@ -544,7 +595,7 @@ class _ActionButtonState extends State<ActionButton> {
     );
   }
 }
-
+// Botón circular del header (cámara y menú)
 class _HeaderButton extends StatelessWidget {
   final IconData icon;
   final Color color;
@@ -602,6 +653,93 @@ class _FeedbackBubble extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+// Widget que dibuja el mapa de huellas con los deditos de acción
+class PawMapWidget extends StatelessWidget {
+  const PawMapWidget({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    // Definimos las acciones y su posición (Alignment) dentro del cuadrado
+    final List<Map<String, dynamic>> actions = [
+      {'emoji': '🍖', 'label': 'Alimentar', 'id': 'alimentar', 'align': const Alignment(-0.6, -0.7)},
+      {'emoji': '🎾', 'label': 'Jugar',     'id': 'jugar',     'align': const Alignment(0.6, -0.7)},
+      {'emoji': '💊', 'label': 'Curar',     'id': 'curar',     'align': const Alignment(0.0, -0.3)},
+      {'emoji': '🛁', 'label': 'Bañar',     'id': 'banar',     'align': const Alignment(-0.8, 0.3)},
+      {'emoji': '😴', 'label': 'Dormir',    'id': 'dormir',    'align': const Alignment(0.8, 0.3)},
+    ];
+
+    return Stack(
+      children: [
+        // Almohadilla central de la huella
+        Align(
+          alignment: const Alignment(0.0, 0.8),
+          child: Container(
+            width: 120,
+            height: 100,
+            decoration: BoxDecoration(
+              color: AppColors.verdeClaro.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(50),
+            ),
+          ),
+        ),
+
+        // Deditos iterados
+        ...actions.map((action) {
+          return Align(
+            alignment: action['align'] as Alignment,
+            child: GestureDetector(
+              onTap: () {
+                // 1. Cerramos el modal de la huella
+                Navigator.pop(context);
+                
+                // 2. Aquí llamaremos a la acción real de la mascota
+                // Necesitamos acceder al estado principal.
+                // Como este widget está separado, la forma más limpia es enviar un callback, 
+                // pero por ahora, para que lo veas funcionando, solo imprimimos la alerta:
+                ScaffoldMessenger.of(context).showSnackBar(
+                   SnackBar(content: Text('Acción seleccionada: ${action['label']} 🐾')),
+                );
+              },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.verdeClaro, width: 4),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.1),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
+                        )
+                      ],
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(action['emoji'], style: const TextStyle(fontSize: 28)),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    action['label'],
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+      ],
     );
   }
 }

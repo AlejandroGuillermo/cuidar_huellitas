@@ -39,33 +39,33 @@ class _AdopcionScreenState extends State<AdopcionScreen>
   final List<Map<String, String>> _personalidades = [
     {
       'nombre': 'Juguetón',
-      'emoji': '⚽',
-      'descripcion': 'Le encanta jugar y correr todo el tiempo. Necesita mucha actividad.',
-      'ia': 'El nivel de energía baja más rápido. Necesita paseos frecuentes.',
+      'emoji': '🎾',
+      'descripcion': 'Le encanta jugar, correr y estar en constante movimiento. Siempre busca divertirse.',
+      'ia': '• Energía ↓ más rápido\n• Hambre ↓ ligeramente más rápido\n• Limpieza ↓ moderado\n• Afecto ↑ rápido al jugar\n• Salud ↓ leve si energía es baja',
     },
     {
       'nombre': 'Dormilón',
       'emoji': '😴',
-      'descripcion': 'Prefiere descansar. Es tranquilo y poco activo.',
-      'ia': 'El nivel de energía baja más lento. Duerme más horas.',
+      'descripcion': 'Prefiere descansar y dormir. Es tranquilo y poco activo.',
+      'ia': '• Energía ↓ lento\n• Hambre ↓ un poco más lento\n• Limpieza ↓ lento\n• Afecto ↑ lento\n• Salud ↑ estable',
     },
     {
-      'nombre': 'Curioso',
-      'emoji': '🔍',
-      'descripcion': 'Explora todo a su alrededor. Le gustan los juguetes nuevos.',
-      'ia': 'El nivel de afecto sube más con interacciones variadas.',
+      'nombre': 'Cariñoso',
+      'emoji': '🥰',
+      'descripcion': 'Busca atención, cariño y compañía constante.',
+      'ia': '• Afecto ↑ muy rápido al interactuar\n• Afecto ↓ más rápido si se ignora\n• Energía ↓ ligeramente\n• Hambre ↓ normal\n• Salud ↓ si afecto es bajo',
     },
     {
       'nombre': 'Travieso',
       'emoji': '😈',
-      'descripcion': 'Hace travesuras si lo descuidas. Requiere atención constante.',
-      'ia': 'El deterioro es más rápido si lo descuidas mucho tiempo.',
+      'descripcion': 'Hace travesuras constantemente y requiere atención.',
+      'ia': '• Limpieza ↓ muy rápido\n• Energía ↓ moderado\n• Hambre ↓ normal\n• Afecto ↑ variable (aleatorio)\n• Salud ↓ leve por riesgo',
     },
     {
-      'nombre': 'Tierno',
-      'emoji': '🥰',
-      'descripcion': 'Busca cariño y mimos. Se pone triste si lo ignoras.',
-      'ia': 'El nivel de afecto baja más rápido si no interactúas.',
+      'nombre': 'Glotón',
+      'emoji': '🍖',
+      'descripcion': 'Siempre quiere comer, le encanta la comida.',
+      'ia': '• Hambre ↓ muy rápido\n• Energía ↑ más al comer\n• Limpieza ↓ leve\n• Afecto ↑ al alimentar\n• Salud ↓ si hambre es muy baja',
     },
   ];
 
