@@ -75,7 +75,7 @@ class PawMapWidget extends StatelessWidget {
                 Navigator.pop(context); // Cierra el modal
                 
                 if (action['id'] == 'alimentar') {
-                  context.go(AppRoutes.alimentar);
+                  context.push(AppRoutes.alimentar);
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Próximamente: ${action['label']} 🐾')),
