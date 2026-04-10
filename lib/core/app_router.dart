@@ -4,6 +4,7 @@ import '../screens/login_screen.dart';
 import '../screens/register_screen.dart';
 import '../screens/adopcion_screen.dart';
 import '../screens/home_screen.dart';
+import '../screens/alimentar_screen.dart';
 
 
 // ── Nombres de rutas como constantes ──────────────────────
@@ -17,6 +18,8 @@ class AppRoutes {
   static const aprende  = '/home/aprende';
   static const logros   = '/home/logros';
   static const ar       = '/home/mascota/ar';
+
+  static const alimentar = '/home/alimentar';
 }
 
 // ── Router principal ───────────────────────────────────────
@@ -73,6 +76,31 @@ final appRouter = GoRouter(
               path: 'mascota/ar',
               name: 'ar',
               builder: (context, state) => const Placeholder(), // TODO: ArScreen
+            ),
+            GoRoute(
+              path: 'alimentar',
+              name: 'alimentar',
+              // Esta ruta se activa al pulsar el botón de alimentar en HomeScreen.
+              pageBuilder: (context, state) {
+                return CustomTransitionPage(
+                  key: state.pageKey,
+                  child: const AlimentarScreen(),
+                  transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                    // Animación de deslizamiento desde la derecha
+                    const begin = Offset(-1.0, 0.0); // Empieza fuera de la pantalla a la derecha
+                    const end = Offset.zero;        // Termina en el centro
+                    const curve = Curves.easeInOut;
+
+                    var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+                    var offsetAnimation = animation.drive(tween);
+
+                    return SlideTransition(
+                      position: offsetAnimation,
+                      child: child,
+                    );
+                  },
+                );
+              },
             ),
           ],
         ),
