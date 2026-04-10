@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:go_router/go_router.dart';
 import '../core/app_colors.dart';
+import '../core/app_router.dart';
 import '../Models/mascota_model.dart';
+import '../widgets/paw_map_widget.dart';
 
 // --- Pantalla Principal ---
 class HomeScreen extends StatefulWidget {
@@ -228,46 +231,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _feedbackTimer?.cancel();
     super.dispose();
   }
-
-  // Función para mostrar el mapa de huellas
-  void _mostrarMapaHuella(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return Dialog(
-          backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min, 
-              children: [
-                const Text(
-                  '🐾Mapa de Acciones🐾',
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.azulPrincipal, // Tu azul
-                  ),
-                ),
-                const SizedBox(height: 24),
-                // Aquí llamamos al widget que dibuja los deditos
-                const SizedBox(
-                  width: 300,
-                  height: 300,
-                  child: PawMapWidget(),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-
     if (isLoading || mascota == null) {
       return const Scaffold(
         backgroundColor: Colors.white,
@@ -287,7 +252,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     return Scaffold(
       floatingActionButton: FloatingActionButton(
-        onPressed: () => _mostrarMapaHuella(context),
+        onPressed: () => mostrarMapaHuella(context),
         backgroundColor: AppColors.verdeFondo, // por el momento, luego lo personalizamos
         elevation: 8,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
@@ -318,81 +283,104 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
 
           // 2. Contenido Principal
-          SafeArea(
-            child: Column(
-              children: [
-                // Header
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.9),
-                    boxShadow: [
-                      BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 10)
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '🐾 ${mascota!.nombreMascota}',
-                          style: const TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF708BE6),
+          Column(
+            children: [
+              // Header Responsive
+              Builder(
+                builder: (context) {
+                  // Obtenemos las medidas exactas de cualquier pantalla
+                  final screenWidth = MediaQuery.of(context).size.width;
+                  final topPadding = MediaQuery.of(context).padding.top;
+                  
+                  // Calculamos un margen del 5% del ancho de la pantalla
+                  final paddingLateral = screenWidth * 0.05;
+
+                  return Container(
+                    padding: EdgeInsets.only(
+                      top: topPadding + 16, // Cubre el Status Bar dinámicamente
+                      bottom: 16, 
+                      left: paddingLateral, // Margen dinámico
+                      right: paddingLateral, // Margen dinámico
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.95),
+                      boxShadow: [
+                        BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 10)
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        // Usamos Expanded + FittedBox para que el texto se encoja si no cabe
+                        Expanded(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown, // Encoge el texto solo si es necesario
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              '🐾 ${mascota!.nombreMascota}',
+                              style: const TextStyle(
+                                fontSize: 28, // Tamaño máximo, se encogerá en pantallas chicas
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF708BE6),
+                              ),
+                            ),
                           ),
-                          overflow: TextOverflow.ellipsis, // Agrega puntos suspensivos si es muy largo
-                          maxLines: 1, // Obliga a que se quede en una sola línea
+                        ),
+                        // Espacio dinámico (2% del ancho de la pantalla)
+                        SizedBox(width: screenWidth * 0.02),
+                        
+                        // Botones asegurados de usar solo el espacio necesario
+                        Row(
+                          mainAxisSize: MainAxisSize.min, 
+                          children: [
+                            _HeaderButton(
+                              icon: cameraActive ? Icons.videocam_off : Icons.camera_alt,
+                              color: cameraActive ? AppColors.rosa : AppColors.azulPrincipal,
+                              onTap: _toggleCamera,
+                            ),
+                            // Espacio dinámico (3% del ancho de la pantalla)
+                            SizedBox(width: screenWidth * 0.03),
+                            _HeaderButton(
+                              icon: Icons.menu,
+                              color: AppColors.azulPrincipal,
+                              onTap: () => setState(() => menuOpen = true),
+                            ),
+                          ],
+                        )
+                      ],
+                    ),
+                  );
+                }
+              ),
+
+              // Zona Central (Mascota animada)
+              Expanded(
+                child: Center(
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // Sombra de la mascota
+                      Positioned(
+                        bottom: 40,
+                        child: AnimatedBuilder(
+                          animation: _floatingController,
+                          builder: (context, child) {
+                            // El inverso de la flotación para la escala de la sombra
+                            final scale = 1.0 - (_floatingAnimation.value.abs() / 100);
+                            return Transform.scale(
+                              scale: scale,
+                              child: Container(
+                                width: 120,
+                                height: 24,
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(50),
+                                ),
+                              ),
+                            );
+                          },
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      Row(
-                        children: [
-                          _HeaderButton(
-                            icon: cameraActive ? Icons.videocam_off : Icons.camera_alt,
-                            color: cameraActive ? AppColors.rosa : AppColors.azulPrincipal,
-                            onTap: _toggleCamera,
-                          ),
-                          const SizedBox(width: 12),
-                          _HeaderButton(
-                            icon: Icons.menu,
-                            color: AppColors.azulPrincipal,
-                            onTap: () => setState(() => menuOpen = true),
-                          ),
-                        ],
-                      )
-                    ],
-                  ),
-                ),
-
-                // Zona Central (Mascota animada)
-                Expanded(
-                  child: Center(
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        // Sombra de la mascota
-                        Positioned(
-                          bottom: 40,
-                          child: AnimatedBuilder(
-                            animation: _floatingController,
-                            builder: (context, child) {
-                              // El inverso de la flotación para la escala de la sombra
-                              final scale = 1.0 - (_floatingAnimation.value.abs() / 100);
-                              return Transform.scale(
-                                scale: scale,
-                                child: Container(
-                                  width: 120,
-                                  height: 24,
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.15),
-                                    borderRadius: BorderRadius.circular(50),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
                         
                         // Mascota
                         AnimatedBuilder(
@@ -425,12 +413,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     ),
                   ),
                 ),
-
-                // Panel Inferior de Acciones
-                
               ],
             ),
-          ),
 
           // 3. Menú Lateral (Drawer personalizado)
           if (menuOpen)
@@ -653,93 +637,6 @@ class _FeedbackBubble extends StatelessWidget {
           ),
         );
       },
-    );
-  }
-}
-
-// Widget que dibuja el mapa de huellas con los deditos de acción
-class PawMapWidget extends StatelessWidget {
-  const PawMapWidget({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    // Definimos las acciones y su posición (Alignment) dentro del cuadrado
-    final List<Map<String, dynamic>> actions = [
-      {'emoji': '🍖', 'label': 'Alimentar', 'id': 'alimentar', 'align': const Alignment(-0.6, -0.7)},
-      {'emoji': '🎾', 'label': 'Jugar',     'id': 'jugar',     'align': const Alignment(0.6, -0.7)},
-      {'emoji': '💊', 'label': 'Curar',     'id': 'curar',     'align': const Alignment(0.0, -0.3)},
-      {'emoji': '🛁', 'label': 'Bañar',     'id': 'banar',     'align': const Alignment(-0.8, 0.3)},
-      {'emoji': '😴', 'label': 'Dormir',    'id': 'dormir',    'align': const Alignment(0.8, 0.3)},
-    ];
-
-    return Stack(
-      children: [
-        // Almohadilla central de la huella
-        Align(
-          alignment: const Alignment(0.0, 0.8),
-          child: Container(
-            width: 120,
-            height: 100,
-            decoration: BoxDecoration(
-              color: AppColors.verdeClaro.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(50),
-            ),
-          ),
-        ),
-
-        // Deditos iterados
-        ...actions.map((action) {
-          return Align(
-            alignment: action['align'] as Alignment,
-            child: GestureDetector(
-              onTap: () {
-                // 1. Cerramos el modal de la huella
-                Navigator.pop(context);
-                
-                // 2. Aquí llamaremos a la acción real de la mascota
-                // Necesitamos acceder al estado principal.
-                // Como este widget está separado, la forma más limpia es enviar un callback, 
-                // pero por ahora, para que lo veas funcionando, solo imprimimos la alerta:
-                ScaffoldMessenger.of(context).showSnackBar(
-                   SnackBar(content: Text('Acción seleccionada: ${action['label']} 🐾')),
-                );
-              },
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 64,
-                    height: 64,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: AppColors.verdeClaro, width: 4),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.1),
-                          blurRadius: 8,
-                          offset: const Offset(0, 4),
-                        )
-                      ],
-                    ),
-                    alignment: Alignment.center,
-                    child: Text(action['emoji'], style: const TextStyle(fontSize: 28)),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    action['label'],
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }),
-      ],
     );
   }
 }
