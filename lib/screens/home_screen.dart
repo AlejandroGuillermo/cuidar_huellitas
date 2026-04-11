@@ -23,10 +23,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Timer? _feedbackTimer;
   bool menuOpen = false;
 
-  // Estado de la cámara
-  bool cameraActive = false;
-  CameraController? _cameraController;
-  List<CameraDescription>? _cameras;
+  // Estado de la cámara (deshabilitado)
+  // bool cameraActive = false;
+  // CameraController? _cameraController;
+  // List<CameraDescription>? _cameras;
 
   // Controladores de animación
   late AnimationController _floatingController;
@@ -60,51 +60,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         _bounceController.reverse();
       }
     });
-
-    _initCameras();
+    // _initCameras(); // Eliminado
   }
 
-  Future<void> _initCameras() async {
-    try {
-      _cameras = await availableCameras();
-    } catch (e) {
-      debugPrint("Error al obtener cámaras: $e");
-    }
-  }
-  // Función para alternar cámara
-  Future<void> _toggleCamera() async {
-    if (cameraActive) {
-      await _cameraController?.dispose();
-      setState(() {
-        _cameraController = null;
-        cameraActive = false;
-      });
-    } else {
-      if (_cameras != null && _cameras!.isNotEmpty) {
-        // Buscar cámara frontal
-        final backCamera = _cameras!.firstWhere(
-          (c) => c.lensDirection == CameraLensDirection.back,
-          orElse: () => _cameras!.first,
-        );
-        
-        _cameraController = CameraController(backCamera, ResolutionPreset.high);
-        try {
-          await _cameraController!.initialize();
-          setState(() {
-            cameraActive = true;
-          });
-        } catch (e) {
-          debugPrint("Error al inicializar cámara: $e");
-        }
-      }
-    }
+  // Eliminadas funciones de cámara
+  void _showCameraComingSoon() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Funcionalidad de cámara próximamente')),
+    );
   }
 
   @override
   void dispose() {
     _floatingController.dispose();
     _bounceController.dispose();
-    _cameraController?.dispose();
+    //_cameraController?.dispose();
     _feedbackTimer?.cancel();
     super.dispose();
   }
@@ -151,7 +121,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         },
         child: Stack(
           children: [
-            // 1. Fondo Degradado o Cámara
+            // 1. Fondo Degradado
             Container(
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
@@ -161,18 +131,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
               ),
             ),
-            if (cameraActive && _cameraController != null && _cameraController!.value.isInitialized)
-              SizedBox.expand(
-                child: FittedBox(
-                  fit: BoxFit.cover,
-                  child: SizedBox(
-                    width: _cameraController!.value.previewSize?.height ?? 1,
-                    height: _cameraController!.value.previewSize?.width ?? 1,
-                    child: CameraPreview(_cameraController!),
-                  ),
-                ),
-              ),
-
             // 2. Contenido Principal
             Column(
               children: [
@@ -193,9 +151,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       _HeaderButton(
-                        icon: cameraActive ? Icons.videocam_off : Icons.camera_alt,
-                        color: cameraActive ? AppColors.rosa : AppColors.azulPrincipal,
-                        onTap: _toggleCamera,
+                        icon: Icons.camera_alt,
+                        color: AppColors.azulPrincipal,
+                        onTap: _showCameraComingSoon,
                       ),
                       SizedBox(width: MediaQuery.of(context).size.width * 0.03),
                       _HeaderButton(
@@ -266,7 +224,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
               ],
             ),
-
             // 3. Menú Lateral
             if (menuOpen)
               GestureDetector(
