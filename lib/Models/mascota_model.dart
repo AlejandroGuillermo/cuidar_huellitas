@@ -62,8 +62,8 @@ class MascotaModel {
       anomaliaDetectada: data['anomalia_detectada'] ?? false,
     );
   }
-
   // ── toFirestore ────────────────────────────────────────
+  // Convierte el modelo a un mapa para guardar en Firestore
   Map<String, dynamic> toFirestore() {
     return {
       'nombre_mascota': nombreMascota,

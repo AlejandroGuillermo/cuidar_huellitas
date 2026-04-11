@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'pet_state.dart';
-import '../models/mascota_model.dart'; // Ajusta la ruta
+import '../models/mascota_model.dart';
 
 class PetCubit extends Cubit<PetState> {
   // Instancias de Firebase
@@ -94,13 +94,13 @@ class PetCubit extends Cubit<PetState> {
     await _guardarEnFirestore(antes: antes, despues: despues, accion: 'alimentar');
   }
 
-  Future<void> jugar() async {
+  Future<void> jugar({int afectoBonus = 15, int energiaCosto = 10}) async {
     final antes = state.mascota;
     if (antes == null) return;
     final despues = antes.copyWith(
-      nivelAfecto:  (antes.nivelAfecto  + 20).clamp(0, 100),
-      nivelEnergia: (antes.nivelEnergia - 15).clamp(0, 100),
-      nivelHambre:  (antes.nivelHambre  - 10).clamp(0, 100),
+      nivelAfecto:  (antes.nivelAfecto  + afectoBonus).clamp(0, 100),
+      nivelEnergia: (antes.nivelEnergia - energiaCosto).clamp(0, 100),
+      nivelHambre:  (antes.nivelHambre  - 8).clamp(0, 100),
       ultimaInteraccion: DateTime.now(),
     );
     emit(state.copyWith(mascota: despues));

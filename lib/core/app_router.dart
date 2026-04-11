@@ -5,6 +5,7 @@ import '../screens/register_screen.dart';
 import '../screens/adopcion_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/alimentar_screen.dart';
+import '../screens/jugar_screen.dart';
 
 
 // ── Nombres de rutas como constantes ──────────────────────
@@ -20,6 +21,7 @@ class AppRoutes {
   static const ar       = '/home/mascota/ar';
 
   static const alimentar = '/home/alimentar';
+  static const jugar     = '/home/jugar';
 }
 
 // ── Router principal ───────────────────────────────────────
@@ -98,6 +100,24 @@ final appRouter = GoRouter(
                       position: offsetAnimation,
                       child: child,
                     );
+                  },
+                );
+              },
+            ),
+            GoRoute(
+              path: 'jugar',
+              name: 'jugar',
+              pageBuilder: (context, state) {
+                return CustomTransitionPage(
+                  key: state.pageKey,
+                  child: const JugarScreen(),
+                  transitionsBuilder: (context, animation, secondaryAnimation, child) {
+                    // La deslizamos desde la izquierda para variar, o desde donde quieras
+                    const begin = Offset(1.0, 0.0); 
+                    const end = Offset.zero;
+                    const curve = Curves.easeInOut;
+                    var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+                    return SlideTransition(position: animation.drive(tween), child: child);
                   },
                 );
               },

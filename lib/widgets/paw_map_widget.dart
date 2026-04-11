@@ -76,6 +76,8 @@ class PawMapWidget extends StatelessWidget {
                 
                 if (action['id'] == 'alimentar') {
                   context.push(AppRoutes.alimentar);
+                } else if(action['id'] == 'jugar') {
+                  context.push(AppRoutes.jugar);
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('Próximamente: ${action['label']} 🐾')),

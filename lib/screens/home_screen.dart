@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:camera/camera.dart';
+//import 'package:camera/camera.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../cubit/pet_cubit.dart';
@@ -115,8 +115,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onHorizontalDragEnd: (details) {
-          if (details.primaryVelocity != null && details.primaryVelocity! > 0) {
-            context.push(AppRoutes.alimentar);
+          if (details.primaryVelocity != null) {
+            if (details.primaryVelocity! > 0) {
+              // Desliza de izquierda a derecha -> Alimentar
+              context.push(AppRoutes.alimentar);
+            } else if (details.primaryVelocity! < 0) {
+              // Desliza de derecha a izquierda -> Jugar
+              context.push(AppRoutes.jugar);
+            }
           }
         },
         child: Stack(
