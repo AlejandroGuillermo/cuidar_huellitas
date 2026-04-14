@@ -9,7 +9,7 @@ import '../core/app_colors.dart';
 import '../cubit/pet_cubit.dart';
 import '../cubit/pet_state.dart';
 import '../widgets/paw_map_widget.dart';
-import '../widgets/header_widget.dart';
+import '../widgets/action_screen_header.dart';
 import 'dart:async';
 
 /// Modelo de alimento
@@ -146,7 +146,7 @@ with SingleTickerProviderStateMixin {
         plateLevel = (plateLevel + 2).clamp(0, 100);
 
         // Agregar emoji visual cada cierto nivel
-        if (plateLevel % 15 == 0 && plateLevel > 0) {
+        if (plateLevel % 20 == 0 && plateLevel > 0) {
           foodInPlate.add(activeBag!.emoji);
         }
 
@@ -333,8 +333,14 @@ with SingleTickerProviderStateMixin {
                 child: Column(
                   children: [
                     // Header
-                    _buildHeader(context),
-
+                    ActionScreenHeader(
+                      emoji: '🍽️',
+                      title: 'Comedor',
+                      subtitlePrefix: 'Hora de comer',
+                      statLabel: 'Hambre:',
+                      statSelector: (mascota) => mascota.nivelHambre, // Le decimos que lea el Hambre
+                      barColors: const [Color(0xFFF0C77A), Color(0xFFFFD166)], // Usa tu AppColors.nivelHambre 0xFFFF8C42
+                    ),
                     // Área principal
                     Expanded(
                       child: Padding(
@@ -377,99 +383,7 @@ with SingleTickerProviderStateMixin {
   }
 
   /// Header con título, descripción y barra de hambre
-  Widget _buildHeader(BuildContext context) {
-    final barraWidth = MediaQuery.of(context).size.width * 0.25;
-    
-    return BlocBuilder<PetCubit, PetState>(
-      builder: (context, state) {
-        // 1. Extraemos la mascota del estado actual de tu Cubit
-        // (Asumiendo que tu estado tiene una propiedad llamada 'mascota')
-        final mascota = state.mascota; 
-      
-        // 2. Valores por defecto por si la mascota aún está cargando
-        final String nombre = mascota?.nombreMascota ?? 'Cargando...';
-        final int hambre = mascota?.nivelHambre ?? 0;
-        return HeaderWidget(
-          // CONTENIDO IZQUIERDO: Título y Subtítulo
-          leftContent: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              FittedBox( // FittedBox para que no desborde si el nombre es largo
-                fit: BoxFit.scaleDown,
-                child: Row(
-                  children: const [
-                    Text('🍽️', style: TextStyle(fontSize: 24)),
-                    SizedBox(width: 8),
-                    Text(
-                      'Comedor',
-                      style: TextStyle(
-                        fontSize: 24,
-                        color: Color(0xFF708be6),
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 4),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  'Hora de comer $nombre!',
-                  style: const TextStyle(fontSize: 14, color: Colors.grey),
-                ),
-              ),
-            ],
-          ),
-          
-          // CONTENIDO DERECHO: Barra de Hambre
-          rightContent: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              const Text(
-                'Hambre:',
-                style: TextStyle(fontSize: 12, color: Colors.grey),
-              ),
-              const SizedBox(height: 4),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: barraWidth, // Usamos el ancho dinámico en lugar de 120
-                    height: 16,
-                    decoration: BoxDecoration(
-                      color: Colors.grey[300],
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: FractionallySizedBox(
-                      alignment: Alignment.centerLeft,
-                      widthFactor: hambre / 100,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFFF0AB7A), AppColors.nivelHambre],
-                          ),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '$hambre%',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      }
-    );
-  }
+  
 
   /// Alacena con alimentos (Expansión controlada)
   Widget _buildCupboard() {

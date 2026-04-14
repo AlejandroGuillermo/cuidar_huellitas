@@ -10,7 +10,7 @@ import '../core/app_router.dart';
 import '../cubit/pet_cubit.dart';
 import '../cubit/pet_state.dart';
 import '../widgets/paw_map_widget.dart';
-import '../widgets/header_widget.dart';
+import '../widgets/action_screen_header.dart';
 
 // ── Modelo de juguete ──────────────────────────────────────
 class Toy {
@@ -56,7 +56,7 @@ class _JugarScreenState extends State<JugarScreen>
   Offset _toyPos = const Offset(180, 200);  // posición del juguete
   Offset _petPos = const Offset(100, 300);  // posición de la mascota
   bool _petTieneToy = false;  // el perro alcanzó el juguete
-  bool _toyEnCaja = false;    // se arrastró a la caja
+  //bool _toyEnCaja = false;    // se arrastró a la caja
   int _jugadas = 0;
   double _progresoQuitar = 0; // barra para quitarle el juguete al perro
   bool _mostrando = false;    // caja de juguetes abierta
@@ -383,9 +383,17 @@ class _JugarScreenState extends State<JugarScreen>
         children: [
           _buildGrass(size),
           SafeArea(
+            top: false,
             child: Column(
               children: [
-                _buildHeader(),
+                ActionScreenHeader(
+                emoji: '🎾',
+                title: 'Área de Juegos',
+                subtitlePrefix: 'Hora de jugar con',
+                statLabel: 'Energía:',
+                statSelector: (mascota) => mascota.nivelEnergia,
+                barColors: const [Color(0xFFF0A77A), Color(0xFFFF8C42)],
+              ),
                 Expanded(child: _buildPlayArea(size)),
               ],
             ),
@@ -636,69 +644,6 @@ class _JugarScreenState extends State<JugarScreen>
           ),
         ),
       ],
-    );
-  }
-
-  // ── Header ─────────────────────────────────────────────
-  Widget _buildHeader() {
-    return BlocBuilder<PetCubit, PetState>(
-      builder: (context, state) {
-        final nombre  = state.mascota?.nombreMascota ?? 'Tu mascota';
-        final energia = state.mascota?.nivelEnergia  ?? 0;
-        return HeaderWidget(
-          leftContent: Row(
-            children: [
-              const Text('🎾', style: TextStyle(fontSize: 22)),
-              const SizedBox(width: 8),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Área de Juegos',
-                      style: TextStyle(fontSize: 18, color: Color(0xFF708be6), fontWeight: FontWeight.bold)),
-                  Text('Hora de jugar con $nombre',
-                      style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                ],
-              ),
-            ],
-          ),
-          rightContent: Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              const Text('Energía:', style: TextStyle(fontSize: 11, color: Colors.grey)),
-              const SizedBox(height: 3),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 70, height: 12,
-                    decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(6)),
-                    child: FractionallySizedBox(
-                      alignment: Alignment.centerLeft,
-                      widthFactor: energia / 100,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: energia < 30
-                                ? [const Color(0xFFE24B4A), const Color(0xFFFF8C42)]
-                                : [const Color(0xFFf07a94), AppColors.verdePrincipal],
-                          ),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text('$energia%',
-                      style: TextStyle(
-                        fontSize: 11, fontWeight: FontWeight.w700,
-                        color: energia < 30 ? const Color(0xFFE24B4A) : AppColors.textoPrincipal,
-                      )),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
     );
   }
 
