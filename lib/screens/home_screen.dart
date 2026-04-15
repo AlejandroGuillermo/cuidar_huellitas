@@ -126,10 +126,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               behavior: HitTestBehavior.opaque,
               onHorizontalDragEnd: (details) {
                 if (details.primaryVelocity != null) {
-                  if (details.primaryVelocity! > 0) {
-                    context.push(AppRoutes.alimentar);
-                  } else if (details.primaryVelocity! < 0) {
+                  if (details.primaryVelocity! < 0) {
+                    // Deslizar derecha → DormirScreen (está a la izquierda del home)
                     context.push(AppRoutes.dormir);
+                  } else if (details.primaryVelocity! > 0) {
+                    // Deslizar izquierda → AlimentarScreen (está a la derecha del home)
+                    context.push(AppRoutes.alimentar);
                   }
                 }
               },
