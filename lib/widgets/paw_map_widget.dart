@@ -46,11 +46,11 @@ class PawMapWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final List<Map<String, dynamic>> actions = [
-      {'emoji': '🍖', 'label': 'Alimentar', 'id': 'alimentar', 'align': const Alignment(-0.6, -0.7)},
-      {'emoji': '🎾', 'label': 'Jugar',     'id': 'jugar',     'align': const Alignment(0.6, -0.7)},
-      {'emoji': '💊', 'label': 'Curar',     'id': 'curar',     'align': const Alignment(0.0, -0.3)},
-      {'emoji': '🛁', 'label': 'Bañar',     'id': 'banar',     'align': const Alignment(-0.8, 0.3)},
-      {'emoji': '😴', 'label': 'Dormir',    'id': 'dormir',    'align': const Alignment(0.8, 0.3)},
+      {'icon': Icons.flatware, 'label': 'Alimentar', 'id': 'alimentar', 'align': const Alignment(-0.6, -0.7)},
+      {'icon': Icons.toys_outlined, 'label': 'Jugar',     'id': 'jugar',     'align': const Alignment(0.6, -0.7)},
+      {'icon': Icons.local_hospital, 'label': 'Curar',     'id': 'curar',     'align': const Alignment(0.0, -0.3)},
+      {'icon': Icons.bathtub, 'label': 'Bañar',     'id': 'banar',     'align': const Alignment(-0.8, 0.3)},
+      {'icon': Icons.king_bed_outlined, 'label': 'Dormir',    'id': 'dormir',    'align': const Alignment(0.8, 0.3)},
     ];
 
     return Stack(
@@ -103,7 +103,7 @@ class PawMapWidget extends StatelessWidget {
                       ],
                     ),
                     alignment: Alignment.center,
-                    child: Text(action['emoji'], style: const TextStyle(fontSize: 28)),
+                    child: Icon(action['icon'],size: 28, color: AppColors.verdePrincipal),
                   ),
                   const SizedBox(height: 6),
                   Text(
