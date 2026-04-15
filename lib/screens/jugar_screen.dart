@@ -301,70 +301,22 @@ class _JugarScreenState extends State<JugarScreen>
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    return Scaffold(
-      // 
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => mostrarMapaHuella(context),
-        backgroundColor: AppColors.verdeFondo,
-        elevation: 8,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-        child: const Text('🐾', style: TextStyle(fontSize: 28)),
-      ),
-      // 2. Envolvemos el Body en un GestureDetector para el Swipe
-      body: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        // Deslizar derecha → Home
-        onHorizontalDragUpdate: (details) {
-          if (details.delta.dx > 0) {
-            setState(() => _dragOffset =
-                (_dragOffset + details.delta.dx).clamp(0, size.width));
-          }
-        },
-        onHorizontalDragEnd: (details) {
-          if (_dragOffset > size.width * 0.3 ||
-              (details.primaryVelocity ?? 0) > 500) {
-            context.go(AppRoutes.home);
-          } else {
-            setState(() => _dragOffset = 0);
-          }
-        },
-        child: Stack(
-          children: [
-            // ── Home visible al deslizar ─────────────────
-            Positioned.fill(
-              child: Transform.translate(
-                offset: Offset(_dragOffset - size.width, 0),
-                child: Container(
-                  color: AppColors.verdeFondo,
-                  child: const Center(child: Text('🏠', style: TextStyle(fontSize: 80))),
-                ),
-              ),
-            ),
-
-            // ── Pantalla de juego ─────────────────────────
-            Transform.translate(
-              offset: Offset(_dragOffset, 0),
-              child: _buildGameScreen(size),
-            ),
-
-            // ── Indicador deslizar ────────────────────────
-            if (_dragOffset > 20)
-              Positioned(
-                right: 16, top: 0, bottom: 0,
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Text('Home →',
-                        style: TextStyle(color: Colors.white, fontSize: 12)),
-                  ),
-                ),
-              ),
-          ],
+    
+    // 1. Envolvemos en PopScope para bloquear el botón físico de 'Atrás' en Android o el swipe nativo de iOS
+    return PopScope(
+      canPop: false, 
+      child: Scaffold(
+        floatingActionButton: FloatingActionButton(
+          onPressed: () => mostrarMapaHuella(context),
+          backgroundColor: AppColors.verdeFondo, // Usa tu AppColors.verdeFondo
+          elevation: 8,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+          child: const Text('🐾', style: TextStyle(fontSize: 28)),
         ),
+        
+        // 2. Quitamos el GestureDetector, el Stack y el Transform. 
+        // Solo llamamos directamente a tu pantalla de juego.
+        body: _buildGameScreen(size), 
       ),
     );
   }
@@ -387,7 +339,7 @@ class _JugarScreenState extends State<JugarScreen>
             child: Column(
               children: [
                 ActionScreenHeader(
-                emoji: '🎾',
+                icon: Icons.toys,
                 title: 'Área de Juegos',
                 subtitlePrefix: 'Hora de jugar con',
                 statLabel: 'Energía:',
