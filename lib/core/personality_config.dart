@@ -1,14 +1,8 @@
 // ══════════════════════════════════════════════════════════════
-// personality_config.dart
-// lib/core/personality_config.dart
-//
-// NÚCLEO DE COMPORTAMIENTO DE LA MASCOTA
-// Este archivo es la única fuente de verdad para las personalidades.
-// Para agregar una nueva personalidad:
-//   1. Agrega un nuevo PersonalityConfig a la lista _configs
-//   2. Define sus modificadores, misiones y reacciones
-//   3. No necesitas tocar ningún otro archivo — el PetCubit
-//      y el Motor de IA leen todo desde aquí.
+// personality_config.dart  —  lib/core/personality_config.dart
+// FUENTE ÚNICA DE VERDAD para personalidades.
+// Para agregar una nueva: agrega un PersonalityConfig al final
+// de _configs. No toques PetCubit ni ninguna pantalla.
 // ══════════════════════════════════════════════════════════════
 
 // ── Modificadores de acción ────────────────────────────────────
@@ -19,84 +13,96 @@ class ActionModifiers {
   final double alimentarHambre;
   final double alimentarSalud;
   final double alimentarAfecto;
-  final bool alimentarTiraComida; // genera misión recoger
-
+  final double alimentarVelocidadPlato; // 1.0=normal, 5.0=muy rápido (Glotón)
+  final bool   alimentarPuedeTirar;    // genera desastre de comida
   // Jugar
   final double jugarAfecto;
   final double jugarEnergiaCosto;
   final double jugarHambreCosto;
-
+  final double jugarLimpieza;          // negativo = se ensucia más
+  final double jugarSaludBonus;        // bonus salud al jugar (Glotón)
   // Bañar
   final double banarLimpieza;
   final double banarAfecto;
+  final bool   banarDificil;           // mascota se mueve (Juguetón, gatos)
+  final bool   banarEscapa;            // escapa a otras pantallas (Travieso)
 
   // Dormir
   final double dormirEnergia;
-  final double dormirAfecto; // tiernos extrañan al niño
+  final double dormirAfecto;           // negativo = extraña al dueño
+  final double dormirSaludBonus;       // bonus salud al dormir (Glotón)
 
   // Curar
   final double curarSalud;
+  final double curarAfecto;
 
   // Pasear
   final double pasearAfecto;
   final double pasearEnergia;
   final double pasearHambreCosto;
+  final double pasearVelocidad;        // 0.4 = va lento en pantalla (Glotón)
 
   const ActionModifiers({
-    // Alimentar
-    this.alimentarHambre      = 1.0,
-    this.alimentarSalud       = 1.0,
-    this.alimentarAfecto      = 1.0,
-    this.alimentarTiraComida  = false,
-    // Jugar
-    this.jugarAfecto          = 1.0,
-    this.jugarEnergiaCosto    = 1.0,
-    this.jugarHambreCosto     = 1.0,
-    // Bañar
-    this.banarLimpieza        = 1.0,
-    this.banarAfecto          = 1.0,
-    // Dormir
-    this.dormirEnergia        = 1.0,
-    this.dormirAfecto         = 0.0, // 0 = sin cambio, negativo = baja
-    // Curar
-    this.curarSalud           = 1.0,
-    // Pasear
-    this.pasearAfecto         = 1.0,
-    this.pasearEnergia        = 1.0,
-    this.pasearHambreCosto    = 1.0,
+    this.alimentarHambre         = 1.0,
+    this.alimentarSalud          = 1.0,
+    this.alimentarAfecto         = 1.0,
+    this.alimentarVelocidadPlato = 1.0,
+    this.alimentarPuedeTirar     = false,
+    this.jugarAfecto             = 1.0,
+    this.jugarEnergiaCosto       = 1.0,
+    this.jugarHambreCosto        = 1.0,
+    this.jugarLimpieza           = 0.0,
+    this.jugarSaludBonus         = 0.0,
+    this.banarLimpieza           = 1.0,
+    this.banarAfecto             = 1.0,
+    this.banarDificil            = false,
+    this.banarEscapa             = false,
+    this.dormirEnergia           = 1.0,
+    this.dormirAfecto            = 0.0,
+    this.dormirSaludBonus        = 0.0,
+    this.curarSalud              = 1.0,
+    this.curarAfecto             = 1.0,
+    this.pasearAfecto            = 1.0,
+    this.pasearEnergia           = 1.0,
+    this.pasearHambreCosto       = 1.0,
+    this.pasearVelocidad         = 1.0,
   });
 }
 
-// ── Modificadores de deterioro ─────────────────────────────────
-// Multiplican la velocidad a la que bajan los niveles con el tiempo.
-// 1.0 = normal, 2.0 = doble de rápido, 0.5 = mitad de rápido
 class DecayModifiers {
   final double salud;
   final double energia;
   final double hambre;
   final double limpieza;
   final double afecto;
-  final double anomaliaFactor; // multiplicador extra cuando hay anomalía IA
+  final double anomaliaFactor;
+  final double ausenciaFactor;    // Delicado: ausencia larga ×2
+  final int    umbralHambre;      // hambre < X → −1 salud/tick (base: 25)
+  final int    umbralLimpieza;    // limpieza < X → −1 salud/tick (base: 40)
 
   const DecayModifiers({
-    this.salud          = 1.0,
-    this.energia        = 1.0,
-    this.hambre         = 1.0,
-    this.limpieza       = 1.0,
-    this.afecto         = 1.0,
-    this.anomaliaFactor = 5.0, // por defecto anomalía = ×5
+    this.salud           = 1.0,
+    this.energia         = 1.0,
+    this.hambre          = 1.0,
+    this.limpieza        = 1.0,
+    this.afecto          = 1.0,
+    this.anomaliaFactor  = 5.0,
+    this.ausenciaFactor  = 1.0,
+    this.umbralHambre    = 25,
+    this.umbralLimpieza  = 40,
   });
 }
 
-// ── Reacciones a estados críticos ─────────────────────────────
-// Define cómo reacciona la mascota cuando un nivel llega a cierto umbral.
 class StateReaction {
-  final String nivel;        // 'hambre','afecto','energia','salud','limpieza'
-  final int umbral;          // valor en que se activa (ej: 20)
-  final String estado;       // texto del estado visible ('hambriento','triste'...)
-  final String mensaje;      // mensaje que muestra la mascota
-  final String? misionId;   // si genera misión automática, su id
-  final bool generaAlerta;  // si manda notificación push
+  final String  nivel;
+  final int     umbral;
+  final String  estado;
+  final String  mensaje;
+  final String? misionId;
+  final bool    generaAlerta;
+  final String? desastreTipo;      // 'comida','juguete','basura','porcion'
+  final String? desastreEmoji;
+  final int     desastreCantidad;
 
   const StateReaction({
     required this.nivel,
@@ -104,7 +110,10 @@ class StateReaction {
     required this.estado,
     required this.mensaje,
     this.misionId,
-    this.generaAlerta = false,
+    this.generaAlerta     = false,
+    this.desastreTipo,
+    this.desastreEmoji,
+    this.desastreCantidad = 0,
   });
 }
 
@@ -115,12 +124,12 @@ class PersonalityMission {
   final String id;
   final String titulo;
   final String descripcion;
-  final String tipo;          // 'diaria', 'semanal', 'unica', 'reactiva'
-  final String accionTrigger; // qué acción la activa ('alimentar','jugar',etc.)
-  final String condicion;     // cuándo se activa (texto descriptivo)
-  final int recompensaXp;
+  final String tipo;            // 'diaria','semanal','reactiva','unica'
+  final String accionTrigger;
+  final String condicion;
+  final int    recompensaXp;
   final String educationalTip;
-  final bool esEspecial;      // misión exclusiva de esta personalidad
+  final bool   esEspecial;
 
   const PersonalityMission({
     required this.id,
@@ -164,485 +173,305 @@ class PersonalityConfig {
 // ══════════════════════════════════════════════════════════════
 class PersonalityRegistry {
 
-  // Acceso rápido por rasgo
   static PersonalityConfig? get(String rasgo) {
-    try {
-      return _configs.firstWhere((c) => c.rasgo == rasgo);
-    } catch (_) {
-      return _configs.first; // Curioso por defecto
-    }
+    try { return _configs.firstWhere((c) => c.rasgo == rasgo); }
+    catch (_) { return _configs.first; }
   }
 
-  // Lista de todos los rasgos disponibles
   static List<String> get rasgos => _configs.map((c) => c.rasgo).toList();
 
   static const List<PersonalityConfig> _configs = [
 
-    // ──────────────────────────────────────────────────────────
-    // JUGUETÓN
-    // ──────────────────────────────────────────────────────────
+    // ── JUGUETÓN ───────────────────────────────────────────
     PersonalityConfig(
       rasgo: 'Juguetón',
       emoji: '⚽',
       descripcion: 'Le encanta jugar y correr todo el tiempo. Necesita mucha actividad.',
-      descripcionIa: 'Energía baja 2× más rápido. Al alimentar tiene 30% de probabilidad de tirar comida.',
-
+      descripcionIa: 'Energía cae 2×. Se ensucia 1.5×. Puede tirar comida y juguetes.',
       acciones: ActionModifiers(
-        alimentarHambre:     1.0,
-        alimentarTiraComida: true,  // 30% de veces tira la comida
-        jugarAfecto:         1.5,   // le encanta jugar
-        jugarEnergiaCosto:   1.3,   // se cansa más
-        banarLimpieza:       0.8,   // le cuesta bañarse
-        dormirEnergia:       1.0,
-        pasearAfecto:        1.4,
-        pasearEnergia:       1.2,
+        alimentarPuedeTirar:     true,   // rara vez tira comida
+        jugarAfecto:             1.5,    // +1.5× afecto al jugar
+        jugarEnergiaCosto:       1.3,
+        jugarLimpieza:          -1.5,    // se ensucia más al jugar
+        banarDificil:            true,   // se mueve al bañar
+        banarLimpieza:           0.85,
+        pasearAfecto:            1.4,
       ),
-
       deterioro: DecayModifiers(
-        energia:        2.0,  // se cansa el doble de rápido
-        hambre:         1.2,
-        afecto:         1.5,  // necesita mucha atención
+        energia:        2.0,   // gasta energía aún sin jugar
+        limpieza:       1.5,
+        afecto:         1.5,
         anomaliaFactor: 5.0,
       ),
-
       reacciones: [
         StateReaction(
-          nivel: 'energia', umbral: 20,
-          estado: 'agotado',
-          mensaje: '¡Estoy muy cansado... necesito descansar!',
-          misionId: 'dormir_jugueton',
-          generaAlerta: true,
+          nivel: 'energia', umbral: 20, estado: 'agotado',
+          mensaje: '¡Estoy muy cansado! ¡Necesito dormir!',
+          misionId: 'jugueton_dormir', generaAlerta: true,
         ),
         StateReaction(
-          nivel: 'afecto', umbral: 30,
-          estado: 'aburrido',
+          nivel: 'afecto', umbral: 30, estado: 'aburrido',
           mensaje: '¡Quiero jugar! ¡Estoy muy aburrido!',
-          misionId: 'jugar_urgente',
-          generaAlerta: true,
-        ),
-        StateReaction(
-          nivel: 'hambre', umbral: 15,
-          estado: 'hambriento',
-          mensaje: '¡Me comí toda la comida que tiré! ¡Tengo hambre!',
-          generaAlerta: false,
+          misionId: 'jugueton_jugar_urgente', generaAlerta: true,
+          desastreTipo: 'juguete', desastreEmoji: '🎾', desastreCantidad: 3,
         ),
       ],
-
       misiones: [
         PersonalityMission(
-          id: 'jugueton_recoger_comida',
-          titulo: '¡A limpiar el desastre!',
-          descripcion: 'Tu mascota tiró la comida por toda la cocina. Recoge cada pieza.',
-          tipo: 'reactiva',
-          accionTrigger: 'alimentar',
-          condicion: 'Se activa cuando alimentarTiraComida ocurre',
-          recompensaXp: 30,
+          id: 'jugueton_recoger_comida', titulo: '¡A limpiar el desastre de comida!',
+          descripcion: 'Tu mascota tiró comida por todas partes. Toca cada pieza para recogerla.',
+          tipo: 'reactiva', accionTrigger: 'alimentar',
+          condicion: 'alimentarPuedeTirar ocurrió', recompensaXp: 30,
           educationalTip: 'Los animales juguetones necesitan rutinas de alimentación tranquilas.',
           esEspecial: true,
         ),
         PersonalityMission(
-          id: 'jugueton_jugar_diario',
-          titulo: '¡Hora de jugar!',
-          descripcion: 'Juega al menos 2 veces hoy con tu mascota.',
-          tipo: 'diaria',
-          accionTrigger: 'jugar',
-          condicion: 'jugadas >= 2 en el día',
-          recompensaXp: 25,
-          educationalTip: 'Los perros juguetones necesitan al menos 30 minutos de ejercicio al día.',
+          id: 'jugueton_recoger_juguetes', titulo: '¡Recoge los juguetes!',
+          descripcion: 'Tu mascota sacó todos los juguetes de la caja. Recógelos tocando cada uno.',
+          tipo: 'reactiva', accionTrigger: 'jugar',
+          condicion: 'mascota agarró otro juguete o estuvo sola', recompensaXp: 25,
+          educationalTip: 'Enseñar a recoger juguetes es parte del cuidado responsable.',
+          esEspecial: true,
         ),
         PersonalityMission(
-          id: 'jugueton_paseo_energia',
-          titulo: '¡Al parque!',
-          descripcion: 'Lleva a tu mascota a pasear para gastar su energía.',
-          tipo: 'diaria',
-          accionTrigger: 'pasear',
-          condicion: 'energia > 80',
-          recompensaXp: 20,
-          educationalTip: 'Un perro con mucha energía necesita espacio para correr.',
+          id: 'jugueton_jugar_diario', titulo: '¡Hora de jugar!',
+          descripcion: 'Juega al menos 2 veces hoy con tu mascota.',
+          tipo: 'diaria', accionTrigger: 'jugar',
+          condicion: 'jugadas >= 2 en el día', recompensaXp: 25,
+          educationalTip: 'Los perros juguetones necesitan al menos 30 minutos de actividad al día.',
         ),
       ],
     ),
 
-    // ──────────────────────────────────────────────────────────
-    // TRAVIESO
-    // ──────────────────────────────────────────────────────────
+    // ── TRAVIESO ───────────────────────────────────────────
     PersonalityConfig(
       rasgo: 'Travieso',
       emoji: '😈',
       descripcion: 'Hace travesuras si lo descuidas. Requiere atención constante.',
-      descripcionIa: 'Deterioro ×3 si hay anomalía. Al alimentar tira la comida. Limpieza baja 2× más rápido.',
-
+      descripcionIa: 'Deterioro ×8 si descuidado. Se ensucia 2×. Escapa al bañar.',
       acciones: ActionModifiers(
-        alimentarHambre:     0.2,   // casi no come, tira todo
-        alimentarTiraComida: true,  // siempre tira la comida
-        alimentarAfecto:     0.5,
+        alimentarPuedeTirar: true,
         jugarAfecto:         1.2,
-        jugarEnergiaCosto:   0.9,
-        banarLimpieza:       0.6,   // se ensucia de nuevo rápido
-        banarAfecto:         0.8,   // no le gusta bañarse
-        dormirEnergia:       1.2,
+        jugarEnergiaCosto:   1.3,
+        jugarLimpieza:      -2.0,
+        banarDificil:        true,
+        banarEscapa:         true,  // escapa a otras pantallas hasta 3×
+        banarLimpieza:       0.6,
         pasearAfecto:        1.3,
-        pasearEnergia:       1.1,
       ),
-
       deterioro: DecayModifiers(
-        salud:          1.0,
-        energia:        1.0,
-        hambre:         1.5,  // se queda con hambre por tirar comida
-        limpieza:       2.0,  // se ensucia muy rápido
-        afecto:         1.5,
-        anomaliaFactor: 8.0, // si lo descuidas se pone muy malo
+        salud:          0.3,   // + evento especial −1/−2 cada 3–5h
+        energia:        1.8,
+        limpieza:       2.0,
+        anomaliaFactor: 8.0,
+        umbralHambre:   25,
+        umbralLimpieza: 40,
       ),
-
       reacciones: [
         StateReaction(
-          nivel: 'limpieza', umbral: 25,
-          estado: 'sucio',
+          nivel: 'afecto', umbral: 25, estado: 'muy_travieso',
+          mensaje: '¡Si no juegas conmigo haré MÁS travesuras! 😈',
+          misionId: 'travieso_calmar', generaAlerta: true,
+          desastreTipo: 'basura', desastreEmoji: '🗑️', desastreCantidad: 4,
+        ),
+        StateReaction(
+          nivel: 'limpieza', umbral: 20, estado: 'muy_sucio',
           mensaje: '¡Hice un desastre! ¡Todo está sucio!',
-          misionId: 'travieso_limpiar',
-          generaAlerta: true,
-        ),
-        StateReaction(
-          nivel: 'hambre', umbral: 20,
-          estado: 'hambriento_travieso',
-          mensaje: '¡Tiré mi comida y ahora tengo hambre! 😅',
-          misionId: 'travieso_alimentar_cuidado',
-          generaAlerta: true,
-        ),
-        StateReaction(
-          nivel: 'afecto', umbral: 20,
-          estado: 'muy_travieso',
-          mensaje: '¡Si no juegas conmigo haré más travesuras!',
-          misionId: 'travieso_calmar',
-          generaAlerta: true,
+          misionId: 'travieso_limpiar', generaAlerta: true,
         ),
       ],
-
       misiones: [
         PersonalityMission(
-          id: 'travieso_recoger_comida',
-          titulo: '¡Recoge el desastre!',
-          descripcion: 'Tu mascota tiró toda la comida. Recoge cada pieza antes de que se eche a perder.',
-          tipo: 'reactiva',
-          accionTrigger: 'alimentar',
-          condicion: 'Siempre al alimentar a mascota traviesa',
-          recompensaXp: 40,
+          id: 'travieso_recoger_comida', titulo: '¡Recoge el desastre de comida!',
+          descripcion: 'Tu mascota tiró la comida. Recoge cada pieza.',
+          tipo: 'reactiva', accionTrigger: 'alimentar',
+          condicion: 'siempre al alimentar', recompensaXp: 40,
           educationalTip: 'Los animales traviesos necesitan supervisión al comer.',
           esEspecial: true,
         ),
         PersonalityMission(
-          id: 'travieso_limpiar',
-          titulo: '¡A limpiar!',
-          descripcion: 'El nivel de limpieza está muy bajo. Baña a tu mascota traviesa.',
-          tipo: 'reactiva',
-          accionTrigger: 'banar',
-          condicion: 'limpieza < 25',
-          recompensaXp: 35,
-          educationalTip: 'Los animales activos necesitan baños más frecuentes.',
+          id: 'travieso_recoger_basura', titulo: '¡Limpia la basura!',
+          descripcion: 'Tu mascota dejó basura por todas las pantallas. ¡A limpiar!',
+          tipo: 'reactiva', accionTrigger: 'cualquiera',
+          condicion: 'afecto < 25', recompensaXp: 35,
+          educationalTip: 'Los animales que se aburren pueden volverse destructivos.',
           esEspecial: true,
         ),
         PersonalityMission(
-          id: 'travieso_calmar',
-          titulo: '¡Cálmalo con amor!',
-          descripcion: 'Juega y acaricia a tu mascota para que se calme.',
-          tipo: 'reactiva',
-          accionTrigger: 'jugar',
-          condicion: 'afecto < 20',
-          recompensaXp: 30,
-          educationalTip: 'Los animales traviesos buscan atención. ¡Dásela antes de que hagan travesuras!',
-          esEspecial: true,
-        ),
-        PersonalityMission(
-          id: 'travieso_rutina',
-          titulo: '¡Establece una rutina!',
+          id: 'travieso_rutina', titulo: '¡Establece una rutina!',
           descripcion: 'Alimenta a tu mascota 3 días seguidos a la misma hora.',
-          tipo: 'semanal',
-          accionTrigger: 'alimentar',
-          condicion: 'streak_alimentar >= 3',
-          recompensaXp: 60,
+          tipo: 'semanal', accionTrigger: 'alimentar',
+          condicion: 'streak_alimentar >= 3', recompensaXp: 60,
           educationalTip: 'Las rutinas ayudan a calmar a los animales traviesos.',
         ),
       ],
     ),
 
-    // ──────────────────────────────────────────────────────────
-    // DORMILÓN
-    // ──────────────────────────────────────────────────────────
+    // ── GLOTÓN ─────────────────────────────────────────────
     PersonalityConfig(
-      rasgo: 'Dormilón',
-      emoji: '😴',
-      descripcion: 'Prefiere descansar. Es tranquilo y poco activo.',
-      descripcionIa: 'Energía baja 0.4× más lento. Recupera 1.5× más energía al dormir. Hambre baja más lento.',
-
+      rasgo: 'Glotón',
+      emoji: '🍗',
+      descripcion: 'Siempre tiene hambre y come muy rápido. Lento pero constante.',
+      descripcionIa: 'Hambre cae 3×. Plato se vacía 5× más rápido. Hambre solo sube 10% por toma.',
       acciones: ActionModifiers(
-        alimentarHambre:  1.0,
-        jugarAfecto:      0.9,   // no le gusta mucho jugar
-        jugarEnergiaCosto:2.0,   // se cansa el doble al jugar
-        banarLimpieza:    1.0,
-        banarAfecto:      0.9,
-        dormirEnergia:    1.5,   // recupera mucho más al dormir
-        dormirAfecto:     0.0,
-        pasearAfecto:     0.8,   // no le gusta mucho pasear
-        pasearEnergia:    0.7,
-        pasearHambreCosto:0.8,
+        alimentarHambre:         0.10,  // solo sube 10% (rellena varias veces)
+        alimentarVelocidadPlato: 5.0,   // plato ≈ 2 seg visual
+        alimentarPuedeTirar:     true,
+        jugarSaludBonus:         5.0,   // jugar sube salud
+        dormirSaludBonus:        8.0,   // dormir sube salud
+        pasearVelocidad:         0.4,   // va más lento
+        pasearHambreCosto:       1.5,
+        jugarLimpieza:          -1.3,
       ),
-
       deterioro: DecayModifiers(
-        salud:          0.8,
-        energia:        0.4,   // baja muy lento
-        hambre:         0.7,   // menos apetito
-        limpieza:       0.8,
-        afecto:         1.0,
-        anomaliaFactor: 3.0,  // menos dramático que otros
+        hambre:         3.0,
+        energia:        1.2,
+        limpieza:       1.3,
+        anomaliaFactor: 5.0,
       ),
-
       reacciones: [
         StateReaction(
-          nivel: 'energia', umbral: 30,
-          estado: 'muy_cansado',
-          mensaje: 'Zzz... necesito dormir una siesta...',
-          misionId: 'dormilon_siesta',
-          generaAlerta: false,
+          nivel: 'hambre', umbral: 30, estado: 'muy_hambriento',
+          mensaje: '¡Tengo MUCHA hambre! ¡Ponme más comida!',
+          misionId: 'gloton_alimentar_urgente', generaAlerta: true,
         ),
         StateReaction(
-          nivel: 'hambre', umbral: 25,
-          estado: 'hambriento_tranquilo',
-          mensaje: 'Mmm... creo que tengo un poco de hambre...',
-          generaAlerta: false,
-        ),
-        StateReaction(
-          nivel: 'afecto', umbral: 20,
-          estado: 'solitario',
-          mensaje: 'Me siento solo... ¿puedes quedarte un rato?',
-          misionId: 'dormilon_companía',
-          generaAlerta: true,
+          nivel: 'hambre', umbral: 15, estado: 'hambriento_critico',
+          mensaje: '¡No hay nada en mi plato! ¡Me muero de hambre!',
+          misionId: 'gloton_alimentar_critico', generaAlerta: true,
+          desastreTipo: 'comida', desastreEmoji: '🍖', desastreCantidad: 4,
         ),
       ],
-
       misiones: [
         PersonalityMission(
-          id: 'dormilon_siesta',
-          titulo: '¡Hora de la siesta!',
-          descripcion: 'Tu mascota está cansada. Ponla a dormir en su lugar favorito.',
-          tipo: 'reactiva',
-          accionTrigger: 'dormir',
-          condicion: 'energia < 30',
-          recompensaXp: 15,
-          educationalTip: 'Los animales necesitan entre 12 y 16 horas de sueño al día.',
+          id: 'gloton_alimentar_urgente', titulo: '¡El glotón tiene hambre!',
+          descripcion: 'Rellena el plato de tu mascota antes de que se quede sin nada.',
+          tipo: 'reactiva', accionTrigger: 'alimentar',
+          condicion: 'hambre < 30', recompensaXp: 20,
+          educationalTip: 'Los animales glotones necesitan porciones controladas para no enfermarse.',
           esEspecial: true,
         ),
         PersonalityMission(
-          id: 'dormilon_ejercicio',
-          titulo: '¡Un poco de ejercicio!',
-          descripcion: 'Aunque no le guste mucho, tu mascota necesita moverse. ¡A pasear!',
-          tipo: 'diaria',
-          accionTrigger: 'pasear',
-          condicion: 'sin pasear en 24h',
-          recompensaXp: 30,
-          educationalTip: 'Incluso los animales tranquilos necesitan ejercicio diario.',
-        ),
-        PersonalityMission(
-          id: 'dormilon_companía',
-          titulo: '¡Quédate un rato!',
-          descripcion: 'Tu mascota dormilona se siente sola. Juega aunque sea un momento.',
-          tipo: 'reactiva',
-          accionTrigger: 'jugar',
-          condicion: 'afecto < 20',
-          recompensaXp: 20,
-          educationalTip: 'Aunque sean tranquilos, los animales necesitan compañía y amor.',
-          esEspecial: true,
+          id: 'gloton_ejercicio', titulo: '¡A mover el cuerpo!',
+          descripcion: 'Tu mascota glotona necesita ejercicio. ¡Juega con ella!',
+          tipo: 'diaria', accionTrigger: 'jugar',
+          condicion: 'sin jugar en 12h', recompensaXp: 30,
+          educationalTip: 'El ejercicio ayuda a los animales a mantenerse sanos aunque coman mucho.',
         ),
       ],
     ),
 
-    // ──────────────────────────────────────────────────────────
-    // CURIOSO
-    // ──────────────────────────────────────────────────────────
+    // ── CARIÑOSO ───────────────────────────────────────────
     PersonalityConfig(
-      rasgo: 'Curioso',
-      emoji: '🔍',
-      descripcion: 'Explora todo a su alrededor. Le gustan los juguetes nuevos.',
-      descripcionIa: 'Afecto sube 1.8× con juguetes nuevos pero 0.7× con repetidos. Necesita variedad.',
-
-      acciones: ActionModifiers(
-        alimentarHambre:  1.0,
-        alimentarAfecto:  1.2,   // le gusta explorar la comida
-        jugarAfecto:      1.8,   // ama los juguetes nuevos
-        jugarEnergiaCosto:1.0,
-        banarLimpieza:    1.0,
-        banarAfecto:      1.3,   // le gusta explorar el agua
-        dormirEnergia:    1.0,
-        pasearAfecto:     1.6,   // adora explorar nuevos lugares
-        pasearEnergia:    1.2,
-        pasearHambreCosto:1.2,
-      ),
-
-      deterioro: DecayModifiers(
-        salud:          1.0,
-        energia:        1.0,
-        hambre:         1.0,
-        limpieza:       1.2,   // se ensucia explorando
-        afecto:         1.2,   // necesita variedad o se aburre
-        anomaliaFactor: 4.0,
-      ),
-
-      reacciones: [
-        StateReaction(
-          nivel: 'afecto', umbral: 35,
-          estado: 'aburrido',
-          mensaje: '¡Todo es igual! ¡Quiero explorar algo nuevo!',
-          misionId: 'curioso_explorar',
-          generaAlerta: true,
-        ),
-        StateReaction(
-          nivel: 'limpieza', umbral: 30,
-          estado: 'sucio_explorador',
-          mensaje: '¡Me ensucie explorando! ¡Necesito un baño!',
-          misionId: 'curioso_banar',
-          generaAlerta: false,
-        ),
-        StateReaction(
-          nivel: 'energia', umbral: 20,
-          estado: 'explorador_cansado',
-          mensaje: 'Exploré tanto que ya no puedo más...',
-          generaAlerta: false,
-        ),
-      ],
-
-      misiones: [
-        PersonalityMission(
-          id: 'curioso_juguete_nuevo',
-          titulo: '¡Juguete sorpresa!',
-          descripcion: 'Usa un juguete diferente al que usaste ayer para jugar.',
-          tipo: 'diaria',
-          accionTrigger: 'jugar',
-          condicion: 'juguete != ultimo_juguete_usado',
-          recompensaXp: 35,
-          educationalTip: 'Los animales curiosos necesitan estimulación mental constante.',
-          esEspecial: true,
-        ),
-        PersonalityMission(
-          id: 'curioso_explorar',
-          titulo: '¡Nuevo lugar!',
-          descripcion: 'Lleva a tu mascota a pasear. ¡Le encanta descubrir cosas nuevas!',
-          tipo: 'diaria',
-          accionTrigger: 'pasear',
-          condicion: 'afecto < 35',
-          recompensaXp: 25,
-          educationalTip: 'Los ambientes nuevos estimulan el cerebro de los animales.',
-        ),
-        PersonalityMission(
-          id: 'curioso_banar',
-          titulo: '¡A explorar el agua!',
-          descripcion: 'Tu mascota se ensució explorando. ¡Hora del baño aventurero!',
-          tipo: 'reactiva',
-          accionTrigger: 'banar',
-          condicion: 'limpieza < 30',
-          recompensaXp: 20,
-          educationalTip: 'Los animales curiosos suelen ensuciarse más por su naturaleza exploradora.',
-          esEspecial: true,
-        ),
-      ],
-    ),
-
-    // ──────────────────────────────────────────────────────────
-    // TIERNO
-    // ──────────────────────────────────────────────────────────
-    PersonalityConfig(
-      rasgo: 'Tierno',
+      rasgo: 'Cariñoso',
       emoji: '🥰',
-      descripcion: 'Busca cariño y mimos. Se pone triste si lo ignoras.',
-      descripcionIa: 'Afecto baja 2× más rápido. Sin interacción >2h genera estado triste. Muy sensible.',
-
+      descripcion: 'Busca cariño en todo momento. Solo el juego lo llena de verdad.',
+      descripcionIa: 'Afecto cae 2×. Acciones dan 0.3× afecto. Jugar da 2× afecto.',
       acciones: ActionModifiers(
-        alimentarHambre:  1.0,
-        alimentarAfecto:  2.0,   // se emociona mucho al comer con el dueño
-        jugarAfecto:      1.5,   // ama la atención
-        jugarEnergiaCosto:0.9,
-        banarLimpieza:    1.0,
-        banarAfecto:      1.4,   // le gusta el contacto físico
-        dormirEnergia:    1.0,
-        dormirAfecto:    -1.0,   // extraña al niño (negativo = baja afecto)
-        pasearAfecto:     1.5,
-        pasearEnergia:    1.0,
-        pasearHambreCosto:1.0,
+        alimentarAfecto:  0.3,   // comer: +3×0.3 = +1
+        banarAfecto:      0.3,   // bañar: +10×0.3 = +3
+        curarAfecto:      0.3,   // curar: +5×0.3 = +2
+        jugarAfecto:      2.0,   // jugar: +15×2 = +30 ← lenguaje de amor
+        dormirAfecto:    -0.5,   // extraña al niño
+        pasearAfecto:     0.3,
       ),
-
       deterioro: DecayModifiers(
-        salud:          1.0,
-        energia:        1.0,
-        hambre:         1.0,
-        limpieza:       1.0,
-        afecto:         2.0,   // se pone triste el doble de rápido
-        anomaliaFactor: 6.0,  // muy sensible al abandono
+        afecto:         2.0,
+        anomaliaFactor: 5.0,
       ),
-
       reacciones: [
         StateReaction(
-          nivel: 'afecto', umbral: 40,
-          estado: 'triste',
+          nivel: 'afecto', umbral: 40, estado: 'triste',
           mensaje: '¿Me olvidaste? Te extraño mucho... 😢',
-          misionId: 'tierno_mimos',
-          generaAlerta: true,
+          misionId: 'carinoso_jugar', generaAlerta: true,
         ),
         StateReaction(
-          nivel: 'afecto', umbral: 20,
-          estado: 'muy_triste',
-          mensaje: '¡Estoy muy triste! ¡Necesito un abrazo!',
-          misionId: 'tierno_urgente',
-          generaAlerta: true,
-        ),
-        StateReaction(
-          nivel: 'hambre', umbral: 25,
-          estado: 'hambriento_triste',
-          mensaje: 'Tengo hambre... y también te extraño... 🥺',
-          generaAlerta: false,
+          nivel: 'afecto', umbral: 15, estado: 'muy_triste',
+          mensaje: '¡Estoy muy triste! ¡Solo quiero jugar contigo!',
+          misionId: 'carinoso_urgente', generaAlerta: true,
         ),
       ],
-
       misiones: [
         PersonalityMission(
-          id: 'tierno_mimos',
-          titulo: '¡Tiempo de mimos!',
-          descripcion: 'Tu mascota necesita atención. Juega o pasea con ella.',
-          tipo: 'reactiva',
-          accionTrigger: 'jugar',
-          condicion: 'afecto < 40',
-          recompensaXp: 20,
-          educationalTip: 'Los animales cariñosos necesitan contacto frecuente con su dueño.',
+          id: 'carinoso_jugar', titulo: '¡Tu mascota necesita atención!',
+          descripcion: 'Juega con tu mascota para que se sienta querida.',
+          tipo: 'reactiva', accionTrigger: 'jugar',
+          condicion: 'afecto < 40', recompensaXp: 25,
+          educationalTip: 'Los animales cariñosos necesitan tiempo de calidad, no solo comida.',
           esEspecial: true,
         ),
         PersonalityMission(
-          id: 'tierno_constancia',
-          titulo: '¡No me olvides!',
-          descripcion: 'Interactúa con tu mascota al menos una vez cada 4 horas.',
-          tipo: 'diaria',
-          accionTrigger: 'cualquiera',
-          condicion: 'tiempo_sin_interaccion < 4h',
-          recompensaXp: 40,
-          educationalTip: 'Los animales tiernos sufren de ansiedad por separación. ¡La constancia es clave!',
-          esEspecial: true,
-        ),
-        PersonalityMission(
-          id: 'tierno_banar_juntos',
-          titulo: '¡Baño con amor!',
-          descripcion: 'Baña a tu mascota con cuidado. ¡Le encanta el contacto!',
-          tipo: 'semanal',
-          accionTrigger: 'banar',
-          condicion: 'siempre disponible',
-          recompensaXp: 30,
-          educationalTip: 'El baño es un momento de unión entre el animal y su dueño.',
+          id: 'carinoso_constancia', titulo: '¡No me olvides!',
+          descripcion: 'Juega con tu mascota al menos una vez al día durante 3 días seguidos.',
+          tipo: 'semanal', accionTrigger: 'jugar',
+          condicion: 'streak_jugar >= 3', recompensaXp: 50,
+          educationalTip: 'La constancia es la clave del vínculo con un animal cariñoso.',
         ),
       ],
     ),
 
-  ]; // fin de _configs
+    // ── DELICADO ───────────────────────────────────────────
+    PersonalityConfig(
+      rasgo: 'Delicado',
+      emoji: '🤒',
+      descripcion: 'Se enferma fácilmente y come muy despacio. Necesita cuidados especiales.',
+      descripcionIa: 'Umbrales de salud más altos. Come lento. Ausencia larga ×2. Misma comida = mal estómago.',
+      acciones: ActionModifiers(
+        alimentarHambre:         0.4,   // come poco a la vez
+        alimentarVelocidadPlato: 0.3,   // plato baja muy lento
+        jugarLimpieza:          -1.5,   // se ensucia más al jugar
+        jugarEnergiaCosto:       1.2,
+      ),
+      deterioro: DecayModifiers(
+        anomaliaFactor:  4.0,
+        ausenciaFactor:  2.0,    // ausencia larga = todo ×2
+        umbralHambre:    40,     // umbral más alto que el normal (25)
+        umbralLimpieza:  55,     // umbral más alto que el normal (40)
+      ),
+      reacciones: [
+        StateReaction(
+          nivel: 'salud', umbral: 50, estado: 'delicado_enfermo',
+          mensaje: 'No me siento bien... necesito al veterinario...',
+          misionId: 'delicado_curar', generaAlerta: true,
+        ),
+        StateReaction(
+          nivel: 'hambre', umbral: 35, estado: 'delicado_hambriento',
+          mensaje: 'Tengo un poco de hambre... pero no mucho...',
+          generaAlerta: false,
+        ),
+      ],
+      misiones: [
+        PersonalityMission(
+          id: 'delicado_mal_estomago', titulo: '¡Mal del estómago!',
+          descripcion: 'Tu mascota comió siempre lo mismo y se enfermó. Recoge las porciones pequeñas que dejó.',
+          tipo: 'reactiva', accionTrigger: 'alimentar',
+          condicion: 'misma comida 3+ veces seguidas', recompensaXp: 40,
+          educationalTip: 'Una dieta variada es importante para la salud de los animales delicados.',
+          esEspecial: true,
+        ),
+        PersonalityMission(
+          id: 'delicado_veterinario', titulo: '¡Visita al veterinario!',
+          descripcion: 'Tu mascota delicada necesita revisión médica regular.',
+          tipo: 'semanal', accionTrigger: 'curar',
+          condicion: 'sin curar en 5 días', recompensaXp: 45,
+          educationalTip: 'Los animales delicados necesitan visitas veterinarias más frecuentes.',
+          esEspecial: true,
+        ),
+        PersonalityMission(
+          id: 'delicado_variedad', titulo: '¡Varía su dieta!',
+          descripcion: 'Dale un alimento diferente al que le diste ayer.',
+          tipo: 'diaria', accionTrigger: 'alimentar',
+          condicion: 'comida != ultimo_alimento', recompensaXp: 20,
+          educationalTip: 'La variedad en la alimentación previene enfermedades digestivas.',
+        ),
+      ],
+    ),
+
+  ]; // fin _configs
 }
 
 // ══════════════════════════════════════════════════════════════
-// VALORES BASE DE CADA ACCIÓN
-// Estos son los valores SIN modificador de personalidad.
-// El PetCubit los multiplica por ActionModifiers.
+// VALORES BASE — sin modificador de personalidad
 // ══════════════════════════════════════════════════════════════
 class BaseActionValues {
   static const int alimentarHambre  = 25;
@@ -676,4 +505,5 @@ class BaseActionValues {
   static const double deterioroHambre   = 2.0;
   static const double deterioroLimpieza = 1.0;
   static const double deterioroAfecto   = 2.0;
+  static const double saludSecundaria   = 1.0;
 }
