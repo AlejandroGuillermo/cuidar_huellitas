@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../core/app_colors.dart';
 import '../screens/login_screen.dart';
 import '../screens/register_screen.dart';
 import '../screens/adopcion_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/alimentar_screen.dart';
 import '../screens/jugar_screen.dart';
+import '../screens/dormir_screen.dart';
 
 
 // ── Nombres de rutas como constantes ──────────────────────
@@ -22,6 +24,7 @@ class AppRoutes {
 
   static const alimentar = '/home/alimentar';
   static const jugar     = '/home/jugar';
+  static const dormir    = '/home/dormir';
 }
 
 // ── Router principal ───────────────────────────────────────
@@ -65,9 +68,7 @@ final appRouter = GoRouter(
     // El ShellRoute envuelve las 3 tabs con la barra inferior.
     // Cada tab es una subruta. La nav bar siempre está visible.
     ShellRoute(
-      builder: (context, state, child) {
-        return _NavBarShell(child: child, state: state);
-      },
+      builder: (context, state, child) => _NavBarShell(state: state, child: child),
       routes: [
         GoRoute(
           path: AppRoutes.home,
@@ -77,7 +78,7 @@ final appRouter = GoRouter(
             GoRoute(
               path: 'mascota/ar',
               name: 'ar',
-              builder: (context, state) => const Placeholder(), // TODO: ArScreen
+              builder: (context, state) => const Placeholder(), // ArScreen
             ),
             GoRoute(
               path: 'alimentar',
@@ -105,12 +106,12 @@ final appRouter = GoRouter(
               },
             ),
             GoRoute(
-              path: 'jugar',
-              name: 'jugar',
+              path: 'dormir',
+              name: 'dormir',
               pageBuilder: (context, state) {
                 return CustomTransitionPage(
                   key: state.pageKey,
-                  child: const JugarScreen(),
+                  child: const DormirScreen(),
                   transitionsBuilder: (context, animation, secondaryAnimation, child) {
                     // La deslizamos desde la izquierda para variar, o desde donde quieras
                     const begin = Offset(1.0, 0.0); 
@@ -125,14 +126,19 @@ final appRouter = GoRouter(
           ],
         ),
         GoRoute(
+          path: AppRoutes.jugar,
+          name: 'jugar',
+          builder: (context, state) => const JugarScreen(),
+        ),
+        GoRoute(
           path: AppRoutes.aprende,
           name: 'aprende',
-          builder: (context, state) => const Placeholder(), // TODO: EducacionScreen
+          builder: (context, state) => const Placeholder(), //EducacionScreen
         ),
         GoRoute(
           path: AppRoutes.logros,
           name: 'logros',
-          builder: (context, state) => const Placeholder(), // TODO: LogrosScreen
+          builder: (context, state) => const Placeholder(), // LogrosScreen
         ),
       ],
     ),
@@ -152,7 +158,7 @@ class _NavBarShell extends StatelessWidget {
   // Determina cuál tab está activa según la ruta actual
   int _indexActual() {
     final location = state.uri.toString();
-    if (location.startsWith(AppRoutes.aprende)) return 1;
+    if (location.startsWith(AppRoutes.jugar)) return 1;
     if (location.startsWith(AppRoutes.logros))  return 2;
     return 0; // home/mascota por defecto
   }
@@ -163,28 +169,28 @@ class _NavBarShell extends StatelessWidget {
       body: child,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _indexActual(),
-        selectedItemColor: const Color(0xFF8AE670),
-        unselectedItemColor: const Color(0xFF73726C),
+        selectedItemColor: AppColors.verdePrincipal,
+        unselectedItemColor: AppColors.azulClaro,
         backgroundColor: Colors.white,
         elevation: 8,
         onTap: (index) {
           switch (index) {
             case 0: context.go(AppRoutes.home);    break;
-            case 1: context.go(AppRoutes.aprende); break;
+            case 1: context.go(AppRoutes.jugar); break;
             case 2: context.go(AppRoutes.logros);  break;
           }
         },
         items: const [
           BottomNavigationBarItem(
-            icon: Text('🐾', style: TextStyle(fontSize: 22)),
+            icon: Icon(Icons.pets, size:32),
             label: 'Mascota',
           ),
           BottomNavigationBarItem(
-            icon: Text('📚', style: TextStyle(fontSize: 22)),
-            label: 'Aprende',
+            icon: Icon(Icons.toys_outlined, size:32),
+            label: 'Jugar',
           ),
           BottomNavigationBarItem(
-            icon: Text('🏆', style: TextStyle(fontSize: 22)),
+            icon: Icon(Icons.emoji_events, size:32),
             label: 'Logros',
           ),
         ],
