@@ -88,7 +88,7 @@ with SingleTickerProviderStateMixin {
 
   // Estado de la pantalla
   FoodItem? activeBag;
-  double plateLevel = 0;
+  double plateLevel = 0.0;
   bool eating = false;
   List<String> foodInPlate = [];
   bool cupboardOpen = false;
@@ -294,7 +294,7 @@ with SingleTickerProviderStateMixin {
         backgroundColor: AppColors.verdeFondo, // O el color que estés usando
         elevation: 8,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-        child: const Text('🐾', style: TextStyle(fontSize: 28)),
+        child: const Icon(Icons.pets, color: AppColors.azulPrincipal, size: 28),
       ),
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -334,7 +334,7 @@ with SingleTickerProviderStateMixin {
                   children: [
                     // Header
                     ActionScreenHeader(
-                      emoji: '🍽️',
+                      icon: Icons.kitchen,
                       title: 'Comedor',
                       subtitlePrefix: 'Hora de comer',
                       statLabel: 'Hambre:',
@@ -455,7 +455,6 @@ with SingleTickerProviderStateMixin {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
                     // Grid de alimentos
                     Expanded(
                       child: GridView.builder(
@@ -699,7 +698,6 @@ with SingleTickerProviderStateMixin {
                 child: Text(petEmoji, style: const TextStyle(fontSize: 80)),
               ),
               const SizedBox(height: 16),
-
               // Mensaje de la mascota
               if (!eating && plateLevel == 0)
                 Container(
