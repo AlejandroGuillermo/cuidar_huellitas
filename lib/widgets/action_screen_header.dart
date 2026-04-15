@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import '../core/app_colors.dart';
 import '../cubit/pet_cubit.dart';
 import '../cubit/pet_state.dart';
 import '../models/mascota_model.dart';
 import 'header_widget.dart';
 
 class ActionScreenHeader extends StatelessWidget {
-  final String emoji;
+  final IconData icon;
   final String title;
   final String subtitlePrefix; // Ej: "Hora de comer"
   final String statLabel;      // Ej: "Hambre:"
@@ -17,7 +18,7 @@ class ActionScreenHeader extends StatelessWidget {
 
   const ActionScreenHeader({
     super.key,
-    required this.emoji,
+    required this.icon,
     required this.title,
     required this.subtitlePrefix,
     required this.statLabel,
@@ -45,7 +46,7 @@ class ActionScreenHeader extends StatelessWidget {
                 fit: BoxFit.scaleDown,
                 child: Row(
                   children: [
-                    Text(emoji, style: const TextStyle(fontSize: 24)),
+                    Icon(icon, size: 32, color: AppColors.azulPrincipal),
                     const SizedBox(width: 8),
                     Text(
                       title,

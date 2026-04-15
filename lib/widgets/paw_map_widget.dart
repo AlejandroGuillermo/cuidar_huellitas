@@ -103,7 +103,7 @@ class PawMapWidget extends StatelessWidget {
                       ],
                     ),
                     alignment: Alignment.center,
-                    child: Icon(action['icon'],size: 28, color: AppColors.verdePrincipal),
+                    child: Icon(action['icon'],size: 32, color: AppColors.verdePrincipal),
                   ),
                   const SizedBox(height: 6),
                   Text(
