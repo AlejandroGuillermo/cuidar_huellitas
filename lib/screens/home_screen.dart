@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cuidar_huellitas/cubit/pet_state.dart';
 import 'package:flutter/material.dart';
 //import 'package:camera/camera.dart';
 import 'package:go_router/go_router.dart';
@@ -22,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   String? showFeedback;
   Timer? _feedbackTimer;
   bool menuOpen = false;
+  double _dragOffset = 0;
 
   // Estado de la cámara (deshabilitado)
   // bool cameraActive = false;
@@ -81,218 +83,252 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    // Obtenemos el estado del Cubit para acceder a la mascota y al loading.
-    final petState = context.watch<PetCubit>().state;
-    final mascota = petState.mascota;
-    final isLoading = petState.isLoading;
+    // 1. Envolvemos todo en un BlocBuilder principal con `buildWhen`
+    return BlocBuilder<PetCubit, PetState>(
+      // ¡MAGIA!: Esto evita que la pantalla parpadee o se redibuje cuando cambia el hambre o energía.
+      // Solo se redibujará si cambia el estado de "Cargando" o si la mascota es nueva.
+      buildWhen: (previous, current) {
+        return previous.isLoading != current.isLoading || 
+               previous.mascota?.nombreMascota != current.mascota?.nombreMascota;
+      },
+      builder: (context, petState) {
+        final mascota = petState.mascota;
+        final isLoading = petState.isLoading;
 
-    if (isLoading || mascota == null) {
-      return const Scaffold(
-        backgroundColor: Colors.white,
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(color: Color(0xFF708BE6)),
-              SizedBox(height: 16),
-              Text("Despertando mascota...", style: TextStyle(color: Colors.grey)),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final petEmoji = mascota.tipoMascota.toLowerCase() == 'gato' ? '🐱' : '🐶';
-
-    return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => mostrarMapaHuella(context),
-        backgroundColor: AppColors.verdeFondo,
-        elevation: 8,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-        child: const Text('🐾', style: TextStyle(fontSize: 28)),
-      ),
-      body: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onHorizontalDragEnd: (details) {
-          if (details.primaryVelocity != null) {
-            if (details.primaryVelocity! > 0) {
-              // Desliza de izquierda a derecha -> Alimentar
-              context.push(AppRoutes.alimentar);
-            } else if (details.primaryVelocity! < 0) {
-              // Desliza de derecha a izquierda -> Jugar
-              context.push(AppRoutes.jugar);
-            }
-          }
-        },
-        child: Stack(
-          children: [
-            // 1. Fondo Degradado
-            Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0xFFA3FF88), Color(0xFF8AE670), Color(0xFFA3FF88)],
-                ),
+        if (isLoading || mascota == null) {
+          return const Scaffold(
+            backgroundColor: Colors.white,
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(color: Color(0xFF708BE6)),
+                  SizedBox(height: 16),
+                  Text("Despertando mascota...", style: TextStyle(color: Colors.grey)),
+                ],
               ),
             ),
-            // 2. Contenido Principal
-            Column(
-              children: [
-                HeaderWidget(
-                  leftContent: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '🐾 ${mascota.nombreMascota}',
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.azulPrincipal,
+          );
+        }
+
+        final petEmoji = mascota.tipoMascota.toLowerCase() == 'gato' ? '🐱' : '🐶';
+
+        return Scaffold(
+          floatingActionButton: FloatingActionButton(
+            onPressed: () => mostrarMapaHuella(context),
+            backgroundColor: AppColors.verdeFondo,
+            elevation: 8,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+            child: Icon(Icons.pets, color: AppColors.azulPrincipal, size: 28),
+          ),
+          body: SizedBox.expand( // 2. ESTO EXPANDE EL GESTURE DETECTOR A TODA LA PANTALLA
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onHorizontalDragEnd: (details) {
+                if (details.primaryVelocity != null) {
+                  if (details.primaryVelocity! > 0) {
+                    context.push(AppRoutes.alimentar);
+                  } else if (details.primaryVelocity! < 0) {
+                    context.push(AppRoutes.dormir);
+                  }
+                }
+              },
+              child: Stack(
+                children: [
+                  // 3. ESTO EXPANDE EL FONDO A TODA LA PANTALLA
+                  Positioned.fill(
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [Color(0xFFA3FF88), Color(0xFF8AE670), Color(0xFFA3FF88)],
+                        ),
                       ),
                     ),
                   ),
-                  rightContent: Row(
-                    mainAxisSize: MainAxisSize.min,
+                  
+                  // Contenido Principal
+                  Column(
                     children: [
-                      _HeaderButton(
-                        icon: Icons.camera_alt,
-                        color: AppColors.azulPrincipal,
-                        onTap: _showCameraComingSoon,
+                      HeaderWidget(
+                        leftContent: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.pets,
+                                size: 28,
+                                color: AppColors.azulPrincipal,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                mascota.nombreMascota,
+                                style: const TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.azulPrincipal,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        rightContent: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _HeaderButton(
+                              icon: Icons.camera_alt,
+                              color: AppColors.azulPrincipal,
+                              onTap: _showCameraComingSoon,
+                            ),
+                            SizedBox(width: MediaQuery.of(context).size.width * 0.03),
+                            _HeaderButton(
+                              icon: Icons.menu,
+                              color: AppColors.azulPrincipal,
+                              onTap: () => setState(() => menuOpen = true),
+                            ),
+                          ],
+                        ),
                       ),
-                      SizedBox(width: MediaQuery.of(context).size.width * 0.03),
-                      _HeaderButton(
-                        icon: Icons.menu,
-                        color: AppColors.azulPrincipal,
-                        onTap: () => setState(() => menuOpen = true),
+                      Expanded( // 4. Este Expanded empuja la mascota para que tome el espacio sobrante
+                        child: Center(
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              Positioned(
+                                bottom: 40,
+                                child: AnimatedBuilder(
+                                  animation: _floatingController,
+                                  builder: (context, child) {
+                                    final scale = 1.0 - (_floatingAnimation.value.abs() / 100);
+                                    return Transform.scale(
+                                      scale: scale,
+                                      child: Container(
+                                        width: 120,
+                                        height: 24,
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(50),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                              AnimatedBuilder(
+                                animation: Listenable.merge([_floatingController, _bounceController]),
+                                builder: (context, child) {
+                                  return Transform.translate(
+                                    offset: Offset(0, _floatingAnimation.value),
+                                    child: Transform.scale(
+                                      scale: _bounceAnimation.value,
+                                      child: Stack(
+                                        clipBehavior: Clip.none,
+                                        alignment: Alignment.topCenter,
+                                        children: [
+                                          Text(
+                                            petEmoji,
+                                            style: const TextStyle(fontSize: 150, height: 1.0),
+                                          ),
+                                          if (showFeedback != null)
+                                            Positioned(
+                                              top: -30,
+                                              child: Text(
+                                                showFeedback!,
+                                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                   ),
-                ),
-                Expanded(
-                  child: Center(
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        Positioned(
-                          bottom: 40,
-                          child: AnimatedBuilder(
-                            animation: _floatingController,
-                            builder: (context, child) {
-                              final scale = 1.0 - (_floatingAnimation.value.abs() / 100);
-                              return Transform.scale(
-                                scale: scale,
-                                child: Container(
-                                  width: 120,
-                                  height: 24,
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withValues(alpha: 0.15),
-                                    borderRadius: BorderRadius.circular(50),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                        AnimatedBuilder(
-                          animation: Listenable.merge([_floatingController, _bounceController]),
-                          builder: (context, child) {
-                            return Transform.translate(
-                              offset: Offset(0, _floatingAnimation.value),
-                              child: Transform.scale(
-                                scale: _bounceAnimation.value,
-                                child: Stack(
-                                  clipBehavior: Clip.none,
-                                  alignment: Alignment.topCenter,
-                                  children: [
-                                    Text(
-                                      petEmoji,
-                                      style: const TextStyle(fontSize: 150, height: 1.0),
-                                    ),
-                                    if (showFeedback != null)
-                                      Positioned(
-                                        top: -30,
-                                        child: Text(
-                                          showFeedback!,
-                                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ],
+
+                  // Menú Lateral
+                  if (menuOpen)
+                    GestureDetector(
+                      onTap: () => setState(() => menuOpen = false),
+                      child: Container(color: Colors.black.withValues(alpha: 0.5)),
                     ),
-                  ),
-                ),
-              ],
-            ),
-            // 3. Menú Lateral
-            if (menuOpen)
-              GestureDetector(
-                onTap: () => setState(() => menuOpen = false),
-                child: Container(color: Colors.black.withValues(alpha: 0.5)),
-              ),
-            AnimatedPositioned(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeOutCubic,
-              top: 0,
-              bottom: 0,
-              right: menuOpen ? 0 : -320,
-              width: 320,
-              child: Container(
-                color: Colors.white,
-                child: Column(
-                  children: [
-                    Container(
-                      padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 16, bottom: 16, left: 24, right: 24),
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(colors: [AppColors.azulPrincipal, AppColors.azulClaro]),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeOutCubic,
+                    top: 0,
+                    bottom: 0,
+                    right: menuOpen ? 0 : -320,
+                    width: 320,
+                    child: Container(
+                      color: Colors.white,
+                      child: Column(
                         children: [
-                          const Text(
-                            'Estadísticas',
-                            style: TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold),
+                          Container(
+                            padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 16, bottom: 16, left: 24, right: 24),
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(colors: [AppColors.azulPrincipal, AppColors.azulClaro]),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Text(
+                                  'Estadísticas',
+                                  style: TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold),
+                                ),
+                                InkWell(
+                                  onTap: () => setState(() => menuOpen = false),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), shape: BoxShape.circle),
+                                    child: const Icon(Icons.close, color: Colors.white),
+                                  ),
+                                )
+                              ],
+                            ),
                           ),
-                          InkWell(
-                            onTap: () => setState(() => menuOpen = false),
-                            child: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), shape: BoxShape.circle),
-                              child: const Icon(Icons.close, color: Colors.white),
+                          Expanded(
+                            // 5. ¡AQUÍ VA OTRO BLOCBUILDER!
+                            // Como el Scaffold ya no se entera de los cambios de stats, 
+                            // le decimos específicamente a esta lista que escuche las barras.
+                            child: BlocBuilder<PetCubit, PetState>(
+                              builder: (context, state) {
+                                final statsMascota = state.mascota;
+                                if(statsMascota == null) return const SizedBox();
+                                
+                                return ListView(
+                                  padding: const EdgeInsets.all(24),
+                                  children: [
+                                    StatBar(icon: Icons.favorite, label: 'Salud', value: statsMascota.nivelSalud, color: AppColors.nivelSalud),
+                                    const SizedBox(height: 24),
+                                    StatBar(icon: Icons.bolt, label: 'Energía', value: statsMascota.nivelEnergia, color: AppColors.nivelEnergia),
+                                    const SizedBox(height: 24),
+                                    StatBar(icon: Icons.restaurant, label: 'Hambre', value: statsMascota.nivelHambre, color: AppColors.nivelHambre),
+                                    const SizedBox(height: 24),
+                                    StatBar(icon: Icons.water_drop, label: 'Limpieza', value: statsMascota.nivelLimpieza, color: AppColors.nivelLimpieza),
+                                    const SizedBox(height: 24),
+                                    StatBar(icon: Icons.auto_awesome, label: 'Afecto', value: statsMascota.nivelAfecto, color: AppColors.nivelAfecto),
+                                  ],
+                                );
+                              }
                             ),
                           )
                         ],
                       ),
                     ),
-                    Expanded(
-                      child: ListView(
-                        padding: const EdgeInsets.all(24),
-                        children: [
-                          StatBar(icon: Icons.favorite, label: 'Salud', value: mascota.nivelSalud, color: AppColors.nivelSalud),
-                          const SizedBox(height: 24),
-                          StatBar(icon: Icons.bolt, label: 'Energía', value: mascota.nivelEnergia, color: AppColors.nivelEnergia),
-                          const SizedBox(height: 24),
-                          StatBar(icon: Icons.restaurant, label: 'Hambre', value: mascota.nivelHambre, color: AppColors.nivelHambre),
-                          const SizedBox(height: 24),
-                          StatBar(icon: Icons.water_drop, label: 'Limpieza', value: mascota.nivelLimpieza, color: AppColors.nivelLimpieza),
-                          const SizedBox(height: 24),
-                          StatBar(icon: Icons.auto_awesome, label: 'Afecto', value: mascota.nivelAfecto, color: AppColors.nivelAfecto),
-                        ],
-                      ),
-                    )
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }
