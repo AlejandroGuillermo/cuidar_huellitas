@@ -12,6 +12,7 @@ class MascotaModel {
   final int nivelHambre;            // Baja rápido. Sube al alimentar
   final int nivelLimpieza;          // Sube al bañar o limpiar arenero
   final int nivelAfecto;            // Sube al jugar o pasear
+  final double nivelPlato;
 
   final String estado;              // Lo calcula la Lógica Difusa
                                     // Valores: "feliz","triste","hambriento","enfermo"
@@ -39,6 +40,7 @@ class MascotaModel {
     required this.ultimaInteraccion,
     this.deterioroAcelerado = false,
     this.anomaliaDetectada = false,
+    this.nivelPlato = 0.0,
   });
 
   // ── fromFirestore ──────────────────────────────────────
@@ -60,6 +62,7 @@ class MascotaModel {
       ultimaInteraccion: (data['ultima_interaccion'] as Timestamp).toDate(),
       deterioroAcelerado: data['deterioro_acelerado'] ?? false,
       anomaliaDetectada: data['anomalia_detectada'] ?? false,
+      nivelPlato: (data['nivelPlato'] ?? 0.0).toDouble(),
     );
   }
   // ── toFirestore ────────────────────────────────────────
@@ -80,6 +83,7 @@ class MascotaModel {
       'ultima_interaccion': Timestamp.fromDate(ultimaInteraccion),
       'deterioro_acelerado': deterioroAcelerado,
       'anomalia_detectada': anomaliaDetectada,
+      'nivelPlato': nivelPlato,
     };
   }
 
@@ -100,6 +104,7 @@ class MascotaModel {
     DateTime? ultimaInteraccion,
     bool? deterioroAcelerado,
     bool? anomaliaDetectada,
+    double? nivelPlato,
   }) {
     return MascotaModel(
       idMascota: idMascota,
@@ -116,6 +121,7 @@ class MascotaModel {
       ultimaInteraccion: ultimaInteraccion ?? this.ultimaInteraccion,
       deterioroAcelerado: deterioroAcelerado ?? this.deterioroAcelerado,
       anomaliaDetectada: anomaliaDetectada ?? this.anomaliaDetectada,
+      nivelPlato: nivelPlato ?? this.nivelPlato,
     );
   }
 
