@@ -15,50 +15,55 @@ enum _ModoHora { manana, tarde, noche }
 
 class DormirScreen extends StatefulWidget {
   const DormirScreen({super.key});
-
   @override
   State<DormirScreen> createState() => _DormirScreenState();
 }
 
 class _DormirScreenState extends State<DormirScreen>
     with TickerProviderStateMixin {
+  // ── Navegación ─────────────────────────────────────────
   double _dragOffset = 0;
 
-  // ── Estado del cuarto ──────────────────────────────────
-  bool _isPetInBed = false; // mascota en la cama
-  bool _isWalking = false; // caminando hacia la cama
-  bool _isDormida = false; // completamente dormida
-  bool _guardando = false;
-
-  // ── Variables para el Tiempo Real ──
-  DateTime _horaDinamica = DateTime(2023, 1, 1, 19, 40);
+  // ── Hora dinámica ──────────────────────────────────────
+  DateTime _horaDinamica = DateTime.now();
   Timer? _timerHora;
+  Timer? _timerDescanso;
 
-  // ── Mecánica de acariciar ──────────────────────────────
-  int _cariciasNecesarias = 0;
-  int _cariciasHechas = 0;
-  List<_Corazon> _corazones = [];
-  final Random _rng = Random();
-
-  // ── Mantener presionado para acostarse ────────────────
+  // ── Mecánica ────────────────────────────────────────────
+  final List<_Corazon> _corazones = [];
   double _progresoAcostar = 0.0;
   Timer? _timerAcostar;
+  Alignment _petAlignment = const Alignment(-0.5, 0.55);
+  final Random _rng = Random();
 
-  // ── Animaciones ────────────────────────────────────────
+  // ── Overlay al dormirse ────────────────────────────────
+  bool _mostrarOverlayDormido = false;
+  bool _eraDormidaAntes = false;
+
+  // ── Animación de flotación ─────────────────────────────
   late AnimationController _petFloatCtrl;
-  late AnimationController _corazonCtrl;
   late Animation<double> _petFloat;
+
+  // ══════════════════════════════════════════════════════
+  // CICLO DE VIDA
+  // ══════════════════════════════════════════════════════
 
   @override
   void initState() {
     super.initState();
 
+    // Hora: avanza 10 min/seg (modo demo — quitar en producción)
     _timerHora = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
-        setState(() {
-          _horaDinamica = _horaDinamica.add(const Duration(minutes: 10));
-        });
+        setState(
+          () => _horaDinamica = _horaDinamica.add(const Duration(minutes: 10)),
+        );
       }
+    });
+
+    // Tick de recuperación de energía
+    _timerDescanso = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) context.read<PetCubit>().tickDescanso();
     });
 
     _petFloatCtrl = AnimationController(
@@ -66,26 +71,25 @@ class _DormirScreenState extends State<DormirScreen>
       duration: const Duration(seconds: 3),
     )..repeat(reverse: true);
 
-    _corazonCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    )..repeat(reverse: true);
-
-    _petFloat = Tween<double>(begin: 0, end: -8).animate(
-      CurvedAnimation(parent: _petFloatCtrl, curve: Curves.easeInOut),
-    );
+    _petFloat = Tween<double>(
+      begin: 0,
+      end: -8,
+    ).animate(CurvedAnimation(parent: _petFloatCtrl, curve: Curves.easeInOut));
   }
 
   @override
   void dispose() {
     _timerHora?.cancel();
+    _timerDescanso?.cancel();
     _timerAcostar?.cancel();
     _petFloatCtrl.dispose();
-    _corazonCtrl.dispose();
     super.dispose();
   }
 
-  // ── Modo hora actual ───────────────────────────────────
+  // ══════════════════════════════════════════════════════
+  // GETTERS DE HORA Y COLOR
+  // ══════════════════════════════════════════════════════
+
   _ModoHora get _modo {
     final h = _horaDinamica.hour;
     if (h >= 6 && h < 13) return _ModoHora.manana;
@@ -93,38 +97,47 @@ class _DormirScreenState extends State<DormirScreen>
     return _ModoHora.noche;
   }
 
-  // ── Iluminación del cuarto (Degradados simulando la ventana) ──
-  List<Color> get _coloresPared {
-    switch (_modo) {
-      case _ModoHora.manana:
-        return [const Color(0xFFFFF8E1), const Color(0xFFD7CCC8)]; // Luz cálida
-      case _ModoHora.tarde:
-        return [const Color(0xFFFFCC80), const Color(0xFFBCAAA4)]; // Atardecer naranja
-      case _ModoHora.noche:
-        return [const Color(0xFF455A64), const Color(0xFF1C2331)]; // Luz de luna tenue
-    }
-  }
+  bool get _esNoche => _modo == _ModoHora.noche;
 
-  List<Color> get _coloresPiso {
-    switch (_modo) {
-      case _ModoHora.manana:
-        return [const Color(0xFFBCAAA4), const Color(0xFFA1887F)];
-      case _ModoHora.tarde:
-        return [const Color(0xFF8D6E63), const Color(0xFF6D4C41)];
-      case _ModoHora.noche:
-        return [const Color(0xFF263238), const Color(0xFF10141C)];
-    }
-  }
+  List<Color> get _coloresPared => switch (_modo) {
+    _ModoHora.manana => [const Color(0xFFFFF8E1), const Color(0xFFD7CCC8)],
+    _ModoHora.tarde => [const Color(0xFFFFCC80), const Color(0xFFBCAAA4)],
+    _ModoHora.noche => [const Color(0xFF455A64), const Color(0xFF1C2331)],
+  };
 
-  // ── Mecánicas ──────────────────────────────────────────
+  List<Color> get _coloresPiso => switch (_modo) {
+    _ModoHora.manana => [const Color(0xFFBCAAA4), const Color(0xFFA1887F)],
+    _ModoHora.tarde => [const Color(0xFF8D6E63), const Color(0xFF6D4C41)],
+    _ModoHora.noche => [const Color(0xFF263238), const Color(0xFF10141C)],
+  };
+
+  String get _tituloModo => switch (_modo) {
+    _ModoHora.manana => 'Buenos días',
+    _ModoHora.tarde => 'Buenas tardes',
+    _ModoHora.noche => 'Hora de dormir',
+  };
+
+  String get _subtituloModo => switch (_modo) {
+    _ModoHora.manana => '¡Descansa un rato,',
+    _ModoHora.tarde => '¡Siesta para',
+    _ModoHora.noche => '¡A dormir,',
+  };
+
+  // ══════════════════════════════════════════════════════
+  // LÓGICA DE INTERACCIÓN
+  // ══════════════════════════════════════════════════════
+
   void _onBedLongPressStart(LongPressStartDetails _) {
-    if (_isPetInBed || _isWalking) return;
+    final mascota = context.read<PetCubit>().state.mascota;
+    if (mascota == null || mascota.estaDescansando) return;
+
     _timerAcostar = Timer.periodic(const Duration(milliseconds: 60), (t) {
       setState(() {
-        _progresoAcostar = (_progresoAcostar + 0.03).clamp(0, 1);
+        _progresoAcostar = (_progresoAcostar + 0.033).clamp(0, 1);
         if (_progresoAcostar >= 1.0) {
           t.cancel();
-          _acostarse();
+          _progresoAcostar = 0;
+          _ejecutarAcostar();
         }
       });
     });
@@ -132,69 +145,113 @@ class _DormirScreenState extends State<DormirScreen>
 
   void _onBedLongPressEnd(LongPressEndDetails _) {
     _timerAcostar?.cancel();
-    if (!_isPetInBed) setState(() => _progresoAcostar = 0);
-  }
-
-  void _acostarse() {
-    setState(() {
-      _isWalking = true;
-      _progresoAcostar = 0;
-    });
-    Future.delayed(const Duration(milliseconds: 1500), () {
-      if (!mounted) return;
-      setState(() {
-        _isWalking = false;
-        _isPetInBed = true;
-      });
-
-      final rasgo = context.read<PetCubit>().state.mascota?.rasgo ?? '';
-      final esCarinoso = rasgo.toLowerCase() == 'cariñoso';
-      final base = 5 + _rng.nextInt(6);
-      setState(() {
-        _cariciasNecesarias = esCarinoso ? base * 2 : base;
-      });
-    });
-  }
-
-  void _onPetPanUpdate(DragUpdateDetails details) {
-    if (!_isPetInBed || _isDormida || _modo != _ModoHora.noche) return;
-
-    if (details.delta.distance > 3) {
-      _cariciasHechas++;
-      _agregarCorazon(details.localPosition);
-
-      if (_cariciasHechas >= _cariciasNecesarias) {
-        _dormirse();
-      }
+    if (context.read<PetCubit>().state.mascota?.estadoDescanso == 'despierto') {
+      setState(() => _progresoAcostar = 0);
     }
   }
 
-  void _agregarCorazon(Offset pos) {
+  Future<void> _ejecutarAcostar() async {
+    final resultado = await context.read<PetCubit>().intentarAcostar(
+      esNoche: _esNoche,
+    );
+    if (resultado == 'rebelde_cuarto') _moverPetRebelde();
+  }
+
+  void _moverPetRebelde() {
+    if (!mounted) return;
     setState(() {
-      _corazones.add(_Corazon(
-        id: DateTime.now().microsecondsSinceEpoch,
-        posicion: pos,
-        offset: 0,
-      ));
+      _petAlignment = Alignment(
+        -0.8 + _rng.nextDouble() * 1.6,
+        0.3 + _rng.nextDouble() * 0.4,
+      );
     });
-    Future.delayed(const Duration(milliseconds: 900), () {
-      if (mounted) {
-        setState(() {
-          _corazones.removeWhere((c) => c.posicion == pos);
-        });
+    Future.delayed(const Duration(milliseconds: 1500), () {
+      if (mounted &&
+          context.read<PetCubit>().state.estadoMision == 'perro_rebelde') {
+        _moverPetRebelde();
       }
     });
   }
 
-  Future<void> _dormirse() async {
-    if (_isDormida) return;
-    setState(() {
-      _isDormida = true;
-      _guardando = true;
+  Future<void> _onPetPanUpdate(DragUpdateDetails details) async {
+    final state = context.read<PetCubit>().state;
+    if (!_esNoche || state.mascota?.estadoDescanso != 'acostado') return;
+    if (details.delta.distance <= 3) return;
+
+    final seDurmio = await context.read<PetCubit>().registrarCaricia();
+    if (seDurmio && mounted) setState(() {});
+
+    final id = DateTime.now().microsecondsSinceEpoch;
+    setState(
+      () => _corazones.add(_Corazon(id: id, posicion: details.globalPosition)),
+    );
+    Future.delayed(const Duration(milliseconds: 900), () {
+      if (mounted) setState(() => _corazones.removeWhere((c) => c.id == id));
     });
-    await context.read<PetCubit>().dormir();
-    if (mounted) setState(() => _guardando = false);
   }
+
+  Future<void> _onPetTap() async {
+    final state = context.read<PetCubit>().state;
+    final mascota = state.mascota;
+    if (mascota == null) return;
+
+    final esDormida = mascota.estadoDescanso == 'dormido';
+    final esSiesta = mascota.estadoDescanso == 'siesta';
+
+    // Tap sobre mascota despierta → calmar rebelde
+    if (!esDormida && !esSiesta) {
+      if (state.estadoMision == 'perro_rebelde' ||
+          state.estadoMision == 'rebelde_escapado') {
+        await context.read<PetCubit>().registrarTapCalmar();
+      }
+      return;
+    }
+
+    // Siesta: siempre despertable
+    if (esSiesta) {
+      await context.read<PetCubit>().registrarTapDespertar();
+      return;
+    }
+
+    // Noche: solo si es de día Y hay luz
+    final esDeDia = _modo != _ModoHora.noche;
+    final hayLuz = mascota.cortinasAbiertas;
+
+    if (!esDeDia || !hayLuz) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              !esDeDia
+                  ? '🌙 Aún es de noche, deja que siga durmiendo...'
+                  : '🪟 Abre las cortinas para que entre la luz',
+              style: const TextStyle(fontSize: 13),
+            ),
+            backgroundColor: const Color(0xFF37474F),
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        );
+      return;
+    }
+
+    await context.read<PetCubit>().registrarTapDespertar();
+  }
+
+  void _onSeDurmio(String nombre) {
+    setState(() => _mostrarOverlayDormido = true);
+    Future.delayed(const Duration(milliseconds: 2500), () {
+      if (mounted) setState(() => _mostrarOverlayDormido = false);
+    });
+  }
+
+  // ══════════════════════════════════════════════════════
+  // BUILD
+  // ══════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
@@ -209,73 +266,70 @@ class _DormirScreenState extends State<DormirScreen>
         child: const Icon(Icons.pets, color: AppColors.azulPrincipal, size: 28),
       ),
       body: GestureDetector(
-        onHorizontalDragUpdate: (details) {
-          if (details.delta.dx > 0) {
-            setState(() => _dragOffset =
-                (_dragOffset + details.delta.dx).clamp(0, size.width));
-          }
+        onHorizontalDragUpdate: (d) {
+          setState(
+            () => _dragOffset = (_dragOffset + d.delta.dx).clamp(
+              -size.width,
+              size.width,
+            ),
+          );
         },
-        onHorizontalDragEnd: (details) {
+        onHorizontalDragEnd: (d) {
           if (_dragOffset > size.width * 0.3 ||
-              (details.primaryVelocity ?? 0) > 500) {
+              (d.primaryVelocity ?? 0) > 500) {
             context.go(AppRoutes.home);
+          } else if (_dragOffset < -size.width * 0.3 ||
+              (d.primaryVelocity ?? 0) < -500) {
+            context.go(AppRoutes.banar);
           } else {
             setState(() => _dragOffset = 0);
           }
         },
         child: Container(
-          // Fondo base para que no se vea blanco al arrastrar
           color: _coloresPared.last,
           child: Transform.translate(
             offset: Offset(_dragOffset, 0),
-            child: _buildCuerpoPrincipal(size),
+            child: Column(
+              children: [
+                SafeArea(
+                  top: false,
+                  bottom: false,
+                  child: ActionScreenHeader(
+                    icon: Icons.bed,
+                    title: _tituloModo,
+                    subtitlePrefix: _subtituloModo,
+                    statLabel: 'Energía:',
+                    statSelector: (m) => m.nivelEnergia,
+                    barColors: const [
+                      Color(0xFF9B59B6),
+                      AppColors.nivelEnergia,
+                    ],
+                  ),
+                ),
+                Expanded(child: _buildCuarto()),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  // ── NUEVO: Estructura integrada ───────────────────────
-  Widget _buildCuerpoPrincipal(Size size) {
-    return Column(
-      children: [
-        SafeArea(
-          top: false,
-          bottom: false,
-          child: ActionScreenHeader(
-            icon: Icons.bed,
-            title: _tituloModo,
-            subtitlePrefix: _subtituloModo,
-            statLabel: 'Energía:',
-            statSelector: (m) => m.nivelEnergia,
-            barColors: const [Color(0xFF9B59B6), AppColors.nivelEnergia],
-          ),
-        ),
-        // El cuarto se expande para usar el resto de la pantalla
-        Expanded(
-          child: _buildCuarto(),
-        ),
-      ],
-    );
-  }
+  // ══════════════════════════════════════════════════════
+  // CUARTO
+  // ══════════════════════════════════════════════════════
 
-  // ══════════════════════════════════════════════════════
-  // CUARTO UI (100% Responsive)
-  // ══════════════════════════════════════════════════════
-  Widget _buildCuarto() { // ⚠️ Ya no recibe (Size size) como parámetro
+  Widget _buildCuarto() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Obtenemos el ancho y alto EXACTO del espacio que dejó el Header
-        final double width = constraints.maxWidth;
-        final double height = constraints.maxHeight;
-        
-        // Creamos un Size local para pasárselo a la mascota y otros widgets sin romper nada
-        final size = Size(width, height);
+        final w = constraints.maxWidth;
+        final h = constraints.maxHeight;
+        final size = Size(w, h);
 
         return Stack(
           clipBehavior: Clip.hardEdge,
           children: [
-            // ── 1. Pared (Fondo) ──────────────────────────────
+            // Pared
             Positioned.fill(
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 800),
@@ -288,13 +342,12 @@ class _DormirScreenState extends State<DormirScreen>
                 ),
               ),
             ),
-            
-            // ── 2. Piso ───────────────────────────────────────
+            // Piso
             Positioned(
               bottom: 0,
               left: 0,
               right: 0,
-              height: height * 0.35, // Usamos 'height' local
+              height: h * 0.35,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 800),
                 decoration: BoxDecoration(
@@ -306,10 +359,9 @@ class _DormirScreenState extends State<DormirScreen>
                 ),
               ),
             ),
-            
-            // ── 3. Rodapié ────────────────────────────────────
+            // Rodapié
             Positioned(
-              bottom: height * 0.35 - 6, // Usamos 'height' local
+              bottom: h * 0.35 - 6,
               left: 0,
               right: 0,
               height: 12,
@@ -318,105 +370,128 @@ class _DormirScreenState extends State<DormirScreen>
                 color: _coloresPiso.last.withValues(alpha: 0.6),
               ),
             ),
-
-            // ── 4. Alfombra ───────────────────────────────────
+            // Alfombra
             Positioned(
-              bottom: height * 0.12, 
-              left: width * 0.1,
-              right: width * 0.1,
+              bottom: h * 0.12,
+              left: w * 0.1,
+              right: w * 0.1,
               child: _buildAlfombra(size),
             ),
-
-            // ── 5. Ventana ────────────────────────────────────
+            // Ventana
             Positioned(
-              top: height * 0.08, 
-              left: width * 0.06,
+              top: h * 0.08,
+              left: w * 0.06,
               child: VentanaHabitacion(horaSimulada: _horaDinamica),
             ),
-
-            // ── 6. Estante Decorativo ─────────────────────────
-            Positioned(
-              top: height * 0.12, 
-              right: width * 0.06,
-              child: _buildEstante(),
-            ),
-
-            // ── 7. Cama ───────────────────────────────────────
-            Positioned(
-              bottom: height * 0.18, 
-              right: width * 0.06,
-              child: _buildCama(),
-            ),
-
-            // ── 8. Mascota y Efectos ──────────────────────────
+            // Estante
+            Positioned(top: h * 0.12, right: w * 0.06, child: _buildEstante()),
+            // Cama
+            Positioned(bottom: h * 0.18, right: w * 0.06, child: _buildCama()),
+            // Mascota
             _buildMascota(size),
-            
-            ..._corazones.map((c) => _buildCorazon(c)),
-            if (_progresoAcostar > 0 && !_isPetInBed) _buildBarraAcostar(size),
-            _buildIndicador(size),
-            if (_isDormida) _buildOverlayDormido(size),
+            // Corazones
+            ..._corazones.map(_buildCorazon),
+            // Barra de acostar
+            if (_progresoAcostar > 0) _buildBarraAcostar(),
+            // Indicador contextual
+            _buildIndicador(),
+            // Banner persistente de dormido
+            BlocBuilder<PetCubit, PetState>(
+              builder: (context, state) {
+                final mascota = state.mascota;
+                final dormido = mascota?.estadoDescanso == 'dormido';
+
+                if (dormido && !_eraDormidaAntes) {
+                  _eraDormidaAntes = true;
+                  WidgetsBinding.instance.addPostFrameCallback(
+                    (_) => _onSeDurmio(mascota?.nombreMascota ?? 'Tu mascota'),
+                  );
+                } else if (!dormido) {
+                  _eraDormidaAntes = false;
+                }
+
+                if (!dormido) return const SizedBox.shrink();
+                return _buildBannerDormido(
+                  nombre: mascota?.nombreMascota ?? 'Tu mascota',
+                  energia: mascota?.nivelEnergia ?? 0,
+                  buffActivo: mascota?.buffActivo ?? false,
+                );
+              },
+            ),
+            // Modal temporal (2.5 seg)
+            if (_mostrarOverlayDormido)
+              BlocBuilder<PetCubit, PetState>(
+                builder: (context, state) => _buildModalDormido(
+                  state.mascota?.nombreMascota ?? 'Tu mascota',
+                ),
+              ),
           ],
         );
       },
     );
   }
 
-  // ── Alfombra ────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════
+  // WIDGETS DEL CUARTO
+  // ══════════════════════════════════════════════════════
+
   Widget _buildAlfombra(Size size) {
     return Container(
-      height: 70,
+      height: 80,
       decoration: BoxDecoration(
-        color: const Color(0xFF7B1FA2).withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(50),
+        color: const Color(0xFF7B1FA2).withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(40),
         border: Border.all(
-          color: const Color(0xFF9C27B0).withValues(alpha: 0.4),
-          width: 2,
+          color: const Color(0xFF9C27B0).withValues(alpha: 0.5),
+          width: 3,
         ),
       ),
       child: Center(
         child: Container(
-          width: size.width * 0.35,
-          height: 30,
+          width: size.width * 0.4,
+          height: 40,
           decoration: BoxDecoration(
-            color: const Color(0xFF9C27B0).withValues(alpha: 0.2),
-            borderRadius: BorderRadius.circular(15),
+            color: const Color(0xFF9C27B0).withValues(alpha: 0.25),
+            borderRadius: BorderRadius.circular(20),
           ),
         ),
       ),
     );
   }
 
-  // ── Estante decorativo (Sin Emojis) ────────────────────
   Widget _buildEstante() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        // Objetos sobre el estante construidos con Containers
         Row(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            // Maceta con planta
+            // Maceta
             Column(
               children: [
                 Container(
                   width: 18,
                   height: 18,
                   decoration: const BoxDecoration(
-                      color: Colors.green, shape: BoxShape.circle),
+                    color: Colors.green,
+                    shape: BoxShape.circle,
+                  ),
                 ),
                 Container(
                   width: 14,
                   height: 12,
                   decoration: const BoxDecoration(
                     color: Colors.brown,
-                    borderRadius: BorderRadius.vertical(bottom: Radius.circular(4)),
+                    borderRadius: BorderRadius.vertical(
+                      bottom: Radius.circular(4),
+                    ),
                   ),
                 ),
               ],
             ),
             const SizedBox(width: 12),
-            // Libros apilados
+            // Libros
             Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
@@ -426,7 +501,7 @@ class _DormirScreenState extends State<DormirScreen>
               ],
             ),
             const SizedBox(width: 12),
-            // Pequeña lámpara
+            // Lámpara
             Column(
               children: [
                 Container(
@@ -434,7 +509,9 @@ class _DormirScreenState extends State<DormirScreen>
                   height: 14,
                   decoration: BoxDecoration(
                     color: Colors.grey[200],
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(8),
+                    ),
                   ),
                 ),
                 Container(width: 4, height: 8, color: Colors.grey[600]),
@@ -443,7 +520,7 @@ class _DormirScreenState extends State<DormirScreen>
             const SizedBox(width: 10),
           ],
         ),
-        // Tabla del estante
+        // Tabla
         Container(
           width: 120,
           height: 8,
@@ -452,11 +529,14 @@ class _DormirScreenState extends State<DormirScreen>
             borderRadius: BorderRadius.circular(4),
             boxShadow: const [
               BoxShadow(
-                  color: Colors.black26, blurRadius: 4, offset: Offset(0, 3))
+                color: Colors.black26,
+                blurRadius: 4,
+                offset: Offset(0, 3),
+              ),
             ],
           ),
         ),
-        // Soporte del estante
+        // Soporte
         Container(
           width: 8,
           height: 35,
@@ -467,58 +547,54 @@ class _DormirScreenState extends State<DormirScreen>
     );
   }
 
-  // ── Cama de Mascota ───────────────────────────────────────────────
   Widget _buildCama() {
     return GestureDetector(
       onLongPressStart: _onBedLongPressStart,
       onLongPressEnd: _onBedLongPressEnd,
       child: SizedBox(
         width: 150,
-        height: 80, // Proporción más ancha y baja
+        height: 80,
         child: Stack(
           alignment: Alignment.bottomCenter,
           children: [
-            // 1. Borde exterior de la cama (La base completa)
+            // Base
             Container(
               width: 140,
               height: 65,
               decoration: BoxDecoration(
-                color: const Color(0xFF5E35B1), // Morado principal
-                borderRadius: BorderRadius.circular(35), // Forma ovalada
+                color: const Color(0xFF5E35B1),
+                borderRadius: BorderRadius.circular(35),
                 boxShadow: const [
                   BoxShadow(
                     color: Colors.black38,
                     blurRadius: 8,
                     offset: Offset(0, 6),
-                  )
+                  ),
                 ],
               ),
             ),
-            
-            // 2. Fondo interno (crea el efecto de profundidad)
+            // Sombra interna
             Positioned(
               top: 20,
               child: Container(
                 width: 120,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF311B92), // Morado muy oscuro para la sombra interna
+                  color: const Color(0xFF311B92),
                   borderRadius: BorderRadius.circular(25),
                 ),
               ),
             ),
-
-            // 3. Cojín central suave (Donde se acuesta la mascota)
+            // Cojín
             Positioned(
               top: 23,
               child: Container(
                 width: 110,
                 height: 35,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFB39DDB), // Morado claro y acolchonado
+                  color: const Color(0xFFB39DDB),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                // Un pequeño detalle decorativo en el centro del cojín
                 child: Center(
                   child: Icon(
                     Icons.pets,
@@ -528,15 +604,14 @@ class _DormirScreenState extends State<DormirScreen>
                 ),
               ),
             ),
-
-            // 4. Borde frontal (Ayuda a dar el efecto 3D de que el cojín está hundido)
+            // Borde frontal 3D
             Positioned(
               bottom: 0,
               child: Container(
                 width: 140,
                 height: 25,
                 decoration: const BoxDecoration(
-                  color: Color(0xFF512DA8), // Tono intermedio
+                  color: Color(0xFF512DA8),
                   borderRadius: BorderRadius.only(
                     bottomLeft: Radius.circular(35),
                     bottomRight: Radius.circular(35),
@@ -550,63 +625,78 @@ class _DormirScreenState extends State<DormirScreen>
     );
   }
 
-  // ── Mascota ─────────────────────────────────────────────
   Widget _buildMascota(Size size) {
     return BlocBuilder<PetCubit, PetState>(
       builder: (context, state) {
-        final emoji = (state.mascota?.tipoMascota ?? 'perro') == 'gato' ? '🐱' : '🐶';
+        final mascota = state.mascota;
+        final descanso = mascota?.estadoDescanso ?? 'despierto';
+        final mision = state.estadoMision;
+
+        final rawEmoji = (mascota?.tipoMascota ?? 'perro') == 'gato'
+            ? '🐱'
+            : '🐶';
+        final petEmoji = descanso == 'dormido' ? '😴' : rawEmoji;
+
+        final enCama =
+            descanso == 'acostado' ||
+            descanso == 'dormido' ||
+            descanso == 'siesta';
+
+        final alignment = mision == 'perro_rebelde'
+            ? _petAlignment
+            : enCama
+            ? const Alignment(0.55, 0.55)
+            : const Alignment(-0.5, 0.55);
 
         return AnimatedAlign(
           duration: const Duration(milliseconds: 1500),
           curve: Curves.easeInOut,
-          alignment: _isPetInBed || _isWalking
-              ? const Alignment(0.55, 0.55)
-              : const Alignment(-0.5, 0.55),
+          alignment: alignment,
           child: GestureDetector(
-            onPanUpdate:
-                (_isPetInBed && !_isDormida && _modo == _ModoHora.noche)
-                    ? _onPetPanUpdate
-                    : null,
+            onTap: _onPetTap,
+            onPanUpdate: _esNoche ? _onPetPanUpdate : null,
             child: AnimatedBuilder(
               animation: _petFloat,
               builder: (context, child) => Transform.translate(
-                offset: Offset(0, _isDormida ? 0 : _petFloat.value),
+                offset: Offset(0, descanso == 'dormido' ? 0 : _petFloat.value),
                 child: child,
               ),
               child: Stack(
                 clipBehavior: Clip.none,
                 alignment: Alignment.topCenter,
                 children: [
-                  // Rotar ligeramente a la mascota para simular que está acostada si está dormida
-                  AnimatedRotation(
-                    turns: _isDormida ? -0.15 : 0.0,
-                    duration: const Duration(milliseconds: 500),
-                    child: Text(emoji, style: const TextStyle(fontSize: 90)),
-                  ),
-                  
-                  // Efecto de Zzz (Texto en lugar de Emoji)
-                  if (_isDormida)
+                  Text(petEmoji, style: const TextStyle(fontSize: 90)),
+
+                  if (descanso == 'dormido')
                     const Positioned(
-                      top: -15,
-                      right: -20,
-                      child: Text('Zzz',
-                          style: TextStyle(
-                              fontSize: 22,
-                              color: Colors.white,
-                              fontWeight: FontWeight.w900,
-                              fontStyle: FontStyle.italic)),
+                      top: -20,
+                      right: -10,
+                      child: Text('💤', style: TextStyle(fontSize: 28)),
                     ),
-                    
-                  // Barra de progreso caricias
-                  if (_isPetInBed &&
-                      !_isDormida &&
-                      _modo == _ModoHora.noche &&
-                      _cariciasNecesarias > 0)
+
+                  if (descanso == 'acostado' &&
+                      _esNoche &&
+                      state.cariciasTotal > 0)
                     Positioned(
                       bottom: -18,
                       left: -10,
                       right: -10,
-                      child: _buildBarraCaricias(),
+                      child: _buildBarraCaricias(
+                        state.cariciasHechas,
+                        state.cariciasTotal,
+                      ),
+                    ),
+
+                  if ((descanso == 'dormido' || descanso == 'siesta') &&
+                      state.tapsDespertar > 0)
+                    Positioned(
+                      bottom: -18,
+                      left: -10,
+                      right: -10,
+                      child: _buildBarraTaps(
+                        state.tapsDespertar,
+                        mascota?.tapsParaDespetarBase ?? 4,
+                      ),
                     ),
                 ],
               ),
@@ -617,57 +707,91 @@ class _DormirScreenState extends State<DormirScreen>
     );
   }
 
-  Widget _buildBarraCaricias() {
-    final progreso = (_cariciasHechas / _cariciasNecesarias).clamp(0.0, 1.0);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(6),
-      child: LinearProgressIndicator(
-        value: progreso,
-        backgroundColor: Colors.white24,
-        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFEC407A)),
-        minHeight: 8,
-      ),
-    );
-  }
-
-  // ── Corazón flotante (Usa Icon en lugar de Emoji) ──────
   Widget _buildCorazon(_Corazon c) {
     return Positioned(
       left: c.posicion.dx - 12,
-      top: c.posicion.dy - 40,
+      top: c.posicion.dy - 50,
       child: TweenAnimationBuilder<double>(
         key: ValueKey(c.id),
         tween: Tween(begin: 0.0, end: 1.0),
         duration: const Duration(milliseconds: 800),
-        builder: (context, v, child) => Opacity(
+        builder: (_, v, _) => Opacity(
           opacity: 1 - v,
           child: Transform.translate(
             offset: Offset(0, -v * 40),
-            child: const Icon(Icons.favorite, color: Colors.redAccent, size: 28),
+            child: const Icon(
+              Icons.favorite,
+              color: Colors.redAccent,
+              size: 28,
+            ),
           ),
         ),
       ),
     );
   }
 
-  // ── Barra de acostar ───────────────────────────────────
-  Widget _buildBarraAcostar(Size size) {
+  Widget _buildBarraCaricias(int hechas, int total) {
+    return Column(
+      children: [
+        Text(
+          'Caricias $hechas/$total',
+          style: const TextStyle(color: Colors.white70, fontSize: 9),
+        ),
+        const SizedBox(height: 2),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: LinearProgressIndicator(
+            value: total > 0 ? hechas / total : 0,
+            backgroundColor: Colors.white24,
+            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFEC407A)),
+            minHeight: 8,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBarraTaps(int taps, int base) {
+    return Column(
+      children: [
+        const Text(
+          'Despertando...',
+          style: TextStyle(color: Colors.white70, fontSize: 9),
+        ),
+        const SizedBox(height: 2),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: LinearProgressIndicator(
+            value: base > 0 ? taps / base : 0,
+            backgroundColor: Colors.white24,
+            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFFD54F)),
+            minHeight: 8,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBarraAcostar() {
     return Positioned(
       bottom: 40,
       left: 40,
       right: 40,
       child: Column(
         children: [
-          const Text('Llevando a la cama...',
-              style: TextStyle(color: Colors.white70, fontSize: 12)),
+          const Text(
+            'Llevando a la cama...',
+            style: TextStyle(color: Colors.white70, fontSize: 12),
+          ),
           const SizedBox(height: 6),
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: LinearProgressIndicator(
               value: _progresoAcostar,
               backgroundColor: Colors.white24,
-              valueColor:
-                  const AlwaysStoppedAnimation<Color>(Color(0xFF9B59B6)),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                Color(0xFF9B59B6),
+              ),
               minHeight: 10,
             ),
           ),
@@ -676,127 +800,198 @@ class _DormirScreenState extends State<DormirScreen>
     );
   }
 
-  // ── Indicador contextual ───────────────────────────────
-  Widget _buildIndicador(Size size) {
-    String texto = '';
-    if (_isDormida) return const SizedBox.shrink();
+  Widget _buildIndicador() {
+    return BlocBuilder<PetCubit, PetState>(
+      builder: (context, state) {
+        final descanso = state.mascota?.estadoDescanso ?? 'despierto';
+        final mision = state.estadoMision;
 
-    if (!_isPetInBed && !_isWalking) {
-      texto = _modo == _ModoHora.noche
-          ? 'Mantén presionada la cama\npara acostar a tu mascota'
-          : 'Mantén presionada la cama\npara que descanse un rato';
-    } else if (_isPetInBed && _modo == _ModoHora.noche) {
-      texto = '¡Desliza sobre tu mascota\npara acariciarla!';
-    } else if (_isPetInBed && _modo != _ModoHora.noche) {
-      texto = 'Descansando...\n(Solo en la noche puede dormir)';
-    }
+        if (descanso == 'dormido') return const SizedBox.shrink();
 
-    if (texto.isEmpty) return const SizedBox.shrink();
+        final texto = switch (mision) {
+          'perro_rebelde' =>
+            '¡Tu mascota no quiere dormir!\nToca varias veces para calmarla 👋',
+          'rebelde_escapado' => '¡Se escapó! Búscala en las otras pantallas 🏃',
+          _ => switch (descanso) {
+            'despierto' =>
+              _esNoche
+                  ? 'Mantén presionada la cama\npara acostar a tu mascota 🌙'
+                  : 'Mantén presionada la cama\npara que descanse un rato ☀️',
+            'acostado' =>
+              _esNoche
+                  ? '¡Desliza sobre tu mascota\npara acariciarla y dormirla! ❤️'
+                  : 'Descansando... Toca varias veces\ncuando quieras despertarla',
+            'siesta' =>
+              'Siesta en curso ☀️\nToca varias veces para despertarla',
+            _ => '',
+          },
+        };
 
-    return Positioned(
-      bottom: 30,
-      left: 20,
-      right: 20,
-      child: Center(
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.45),
-            borderRadius: BorderRadius.circular(20),
+        if (texto.isEmpty) return const SizedBox.shrink();
+
+        return Positioned(
+          bottom: 28,
+          left: 16,
+          right: 16,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                texto,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ),
           ),
-          child: Text(texto,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white70, fontSize: 13)),
+        );
+      },
+    );
+  }
+
+  // ══════════════════════════════════════════════════════
+  // OVERLAYS DE DORMIDO
+  // ══════════════════════════════════════════════════════
+
+  Widget _buildModalDormido(String nombre) {
+    return Positioned.fill(
+      child: AnimatedOpacity(
+        opacity: _mostrarOverlayDormido ? 1.0 : 0.0,
+        duration: const Duration(milliseconds: 400),
+        child: Container(
+          color: Colors.black.withValues(alpha: 0.55),
+          child: Center(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 40),
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A0A3B).withValues(alpha: 0.96),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: const Color(0xFF9B59B6).withValues(alpha: 0.5),
+                  width: 1.5,
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('💤', style: TextStyle(fontSize: 52)),
+                  const SizedBox(height: 12),
+                  Text(
+                    '$nombre está dormido',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'No interrumpas su sueño profundo',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white60, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );
   }
 
-  // ── Overlay dormido ────────────────────────────────────
-  Widget _buildOverlayDormido(Size size) {
-    return Positioned.fill(
+  Widget _buildBannerDormido({
+    required String nombre,
+    required int energia,
+    required bool buffActivo,
+  }) {
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
       child: Container(
-        color: Colors.black.withValues(alpha: 0.45),
-        child: Center(
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 40),
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1A0A3B).withValues(alpha: 0.95),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(
-                  color: const Color(0xFF9B59B6).withValues(alpha: 0.5)),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A0A3B).withValues(alpha: 0.88),
+          border: Border(
+            bottom: BorderSide(
+              color: const Color(0xFF9B59B6).withValues(alpha: 0.4),
+              width: 1,
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(Icons.bedtime, color: Colors.white, size: 48),
-                const SizedBox(height: 12),
-                Text(
-                  _modo == _ModoHora.noche
-                      ? '¡${_nombreMascota()} está durmiendo!'
-                      : '¡${_nombreMascota()} está descansando!',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
+          ),
+        ),
+        child: Row(
+          children: [
+            const Text('💤', style: TextStyle(fontSize: 20)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '$nombre está dormido',
+                    style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  _modo == _ModoHora.noche
-                      ? 'Recuperó toda su energía. ¡Buen trabajo!'
-                      : 'Descansó un rato. La energía sube poco a poco.',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white60, fontSize: 12),
-                ),
-                const SizedBox(height: 20),
-                if (_guardando)
-                  const CircularProgressIndicator(color: Color(0xFF9B59B6))
-                else
-                  ElevatedButton.icon(
-                    onPressed: () => context.go(AppRoutes.home),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF9B59B6),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20)),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 24, vertical: 12),
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
                     ),
-                    icon: const Icon(Icons.home, color: Colors.white),
-                    label: const Text('Volver al inicio',
-                        style: TextStyle(
-                            color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
+                  const Text(
+                    'No interrumpas su sueño profundo',
+                    style: TextStyle(color: Colors.white54, fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  '⚡ $energia%',
+                  style: const TextStyle(
+                    color: Color(0xFF9B59B6),
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                SizedBox(
+                  width: 70,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: energia / 100,
+                      backgroundColor: Colors.white12,
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                        Color(0xFF9B59B6),
+                      ),
+                      minHeight: 5,
+                    ),
+                  ),
+                ),
+                if (buffActivo)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 3),
+                    child: Text(
+                      '✨ Buff activo',
+                      style: TextStyle(color: Color(0xFFFFD54F), fontSize: 9),
+                    ),
                   ),
               ],
             ),
-          ),
+          ],
         ),
       ),
     );
   }
-
-  // ── Helpers ────────────────────────────────────────────
-  String get _tituloModo => switch (_modo) {
-        _ModoHora.manana => 'Buenos días',
-        _ModoHora.tarde => 'Buenas tardes',
-        _ModoHora.noche => 'Hora de dormir',
-      };
-
-  String get _subtituloModo => switch (_modo) {
-        _ModoHora.manana => '¡Descansa un rato,',
-        _ModoHora.tarde => '¡Siesta para',
-        _ModoHora.noche => '¡A dormir,',
-      };
-
-  String _nombreMascota() =>
-      context.read<PetCubit>().state.mascota?.nombreMascota ?? 'Tu mascota';
 }
 
-// ── Modelo de corazón flotante ─────────────────────────────
 class _Corazon {
   final int id;
   final Offset posicion;
-  double offset;
-  _Corazon({required this.id, required this.posicion, required this.offset});
+  const _Corazon({required this.id, required this.posicion});
 }

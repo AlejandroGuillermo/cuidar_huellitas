@@ -22,7 +22,7 @@ void mostrarMapaHuella(BuildContext context) {
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
                   // Cambia esto si tu color azul se llama diferente en AppColors
-                  color: Color(0xFF708BE6), 
+                  color: Color(0xFF708BE6),
                 ),
               ),
               const SizedBox(height: 24),
@@ -46,11 +46,36 @@ class PawMapWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final List<Map<String, dynamic>> actions = [
-      {'icon': Icons.flatware, 'label': 'Alimentar', 'id': 'alimentar', 'align': const Alignment(-0.6, -0.7)},
-      {'icon': Icons.toys_outlined, 'label': 'Jugar',     'id': 'jugar',     'align': const Alignment(0.6, -0.7)},
-      {'icon': Icons.local_hospital, 'label': 'Curar',     'id': 'curar',     'align': const Alignment(0.0, -0.3)},
-      {'icon': Icons.bathtub, 'label': 'Bañar',     'id': 'banar',     'align': const Alignment(-0.8, 0.3)},
-      {'icon': Icons.king_bed_outlined, 'label': 'Dormir',    'id': 'dormir',    'align': const Alignment(0.8, 0.3)},
+      {
+        'icon': Icons.flatware,
+        'label': 'Alimentar',
+        'id': 'alimentar',
+        'align': const Alignment(-0.6, -0.7),
+      },
+      {
+        'icon': Icons.toys_outlined,
+        'label': 'Jugar',
+        'id': 'jugar',
+        'align': const Alignment(0.6, -0.7),
+      },
+      {
+        'icon': Icons.local_hospital,
+        'label': 'Curar',
+        'id': 'curar',
+        'align': const Alignment(0.0, -0.3),
+      },
+      {
+        'icon': Icons.bathtub,
+        'label': 'Bañar',
+        'id': 'banar',
+        'align': const Alignment(-0.8, 0.3),
+      },
+      {
+        'icon': Icons.king_bed_outlined,
+        'label': 'Dormir',
+        'id': 'dormir',
+        'align': const Alignment(0.8, 0.3),
+      },
     ];
 
     return Stack(
@@ -73,16 +98,20 @@ class PawMapWidget extends StatelessWidget {
             child: GestureDetector(
               onTap: () {
                 Navigator.pop(context); // Cierra el modal
-                
+
                 if (action['id'] == 'alimentar') {
                   context.push(AppRoutes.alimentar);
-                } else if(action['id'] == 'jugar') {
+                } else if (action['id'] == 'jugar') {
                   context.push(AppRoutes.jugar);
-                } else if(action['id'] == 'dormir') {
+                } else if (action['id'] == 'banar') {
+                  context.push(AppRoutes.banar);
+                } else if (action['id'] == 'dormir') {
                   context.push(AppRoutes.dormir);
-                }else {
+                } else {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Próximamente: ${action['label']} 🐾')),
+                    SnackBar(
+                      content: Text('Próximamente: ${action['label']} 🐾'),
+                    ),
                   );
                 }
               },
@@ -101,11 +130,15 @@ class PawMapWidget extends StatelessWidget {
                           color: Colors.black.withValues(alpha: 0.1),
                           blurRadius: 8,
                           offset: const Offset(0, 4),
-                        )
+                        ),
                       ],
                     ),
                     alignment: Alignment.center,
-                    child: Icon(action['icon'],size: 32, color: AppColors.verdePrincipal),
+                    child: Icon(
+                      action['icon'],
+                      size: 32,
+                      color: AppColors.verdePrincipal,
+                    ),
                   ),
                   const SizedBox(height: 6),
                   Text(

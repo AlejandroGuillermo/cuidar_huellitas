@@ -8,23 +8,24 @@ import '../screens/home_screen.dart';
 import '../screens/alimentar_screen.dart';
 import '../screens/jugar_screen.dart';
 import '../screens/dormir_screen.dart';
-
+import '../screens/banar_screen.dart';
 
 // ── Nombres de rutas como constantes ──────────────────────
 // Siempre usa estas constantes en lugar de strings sueltos.
 // Si renombras una ruta, solo cambias aquí y funciona en toda la app.
 class AppRoutes {
-  static const login    = '/login';
+  static const login = '/login';
   static const register = '/register';
   static const adopcion = '/adopcion';
-  static const home     = '/home';
-  static const aprende  = '/home/aprende';
-  static const logros   = '/home/logros';
-  static const ar       = '/home/mascota/ar';
+  static const home = '/home';
+  static const aprende = '/home/aprende';
+  static const logros = '/home/logros';
+  static const ar = '/home/mascota/ar';
 
   static const alimentar = '/home/alimentar';
-  static const jugar     = '/home/jugar';
-  static const dormir    = '/home/dormir';
+  static const jugar = '/home/jugar';
+  static const dormir = '/home/dormir';
+  static const banar = '/home/banar';
 }
 
 // ── Router principal ───────────────────────────────────────
@@ -36,11 +37,11 @@ final appRouter = GoRouter(
   // Por ahora siempre va al login.
   // Cuando integres Firebase Auth, reemplaza la lógica aquí.
   redirect: (context, state) {
-    // TODO: revisar si el usuario está logueado
+    // revisar si el usuario está logueado
     // final logueado = FirebaseAuth.instance.currentUser != null;
     // if (!logueado) return AppRoutes.login;
 
-    // TODO: revisar si ya tiene mascota
+    // revisar si ya tiene mascota
     // if (logueado && !tieneMascota) return AppRoutes.adopcion;
 
     return null; // null = sin redirección, sigue normal
@@ -56,7 +57,7 @@ final appRouter = GoRouter(
     GoRoute(
       path: AppRoutes.register,
       name: 'register',
-      builder: (context, state) => const RegisterScreen(), 
+      builder: (context, state) => const RegisterScreen(),
     ),
     GoRoute(
       path: AppRoutes.adopcion,
@@ -68,7 +69,8 @@ final appRouter = GoRouter(
     // El ShellRoute envuelve las 3 tabs con la barra inferior.
     // Cada tab es una subruta. La nav bar siempre está visible.
     ShellRoute(
-      builder: (context, state, child) => _NavBarShell(state: state, child: child),
+      builder: (context, state, child) =>
+          _NavBarShell(state: state, child: child),
       routes: [
         GoRoute(
           path: AppRoutes.home,
@@ -88,20 +90,27 @@ final appRouter = GoRouter(
                 return CustomTransitionPage(
                   key: state.pageKey,
                   child: const AlimentarScreen(),
-                  transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                    // Animación de deslizamiento desde la derecha
-                    const begin = Offset(-1.0, 0.0); // Empieza fuera de la pantalla a la derecha
-                    const end = Offset.zero;        // Termina en el centro
-                    const curve = Curves.easeInOut;
+                  transitionsBuilder:
+                      (context, animation, secondaryAnimation, child) {
+                        // Animación de deslizamiento desde la derecha
+                        const begin = Offset(
+                          -1.0,
+                          0.0,
+                        ); // Empieza fuera de la pantalla a la derecha
+                        const end = Offset.zero; // Termina en el centro
+                        const curve = Curves.easeInOut;
 
-                    var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
-                    var offsetAnimation = animation.drive(tween);
+                        var tween = Tween(
+                          begin: begin,
+                          end: end,
+                        ).chain(CurveTween(curve: curve));
+                        var offsetAnimation = animation.drive(tween);
 
-                    return SlideTransition(
-                      position: offsetAnimation,
-                      child: child,
-                    );
-                  },
+                        return SlideTransition(
+                          position: offsetAnimation,
+                          child: child,
+                        );
+                      },
                 );
               },
             ),
@@ -112,14 +121,45 @@ final appRouter = GoRouter(
                 return CustomTransitionPage(
                   key: state.pageKey,
                   child: const DormirScreen(),
-                  transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                    // La deslizamos desde la izquierda para variar, o desde donde quieras
-                    const begin = Offset(1.0, 0.0); 
-                    const end = Offset.zero;
-                    const curve = Curves.easeInOut;
-                    var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
-                    return SlideTransition(position: animation.drive(tween), child: child);
-                  },
+                  transitionsBuilder:
+                      (context, animation, secondaryAnimation, child) {
+                        // La deslizamos desde la izquierda para variar, o desde donde quieras
+                        const begin = Offset(1.0, 0.0);
+                        const end = Offset.zero;
+                        const curve = Curves.easeInOut;
+                        var tween = Tween(
+                          begin: begin,
+                          end: end,
+                        ).chain(CurveTween(curve: curve));
+                        return SlideTransition(
+                          position: animation.drive(tween),
+                          child: child,
+                        );
+                      },
+                );
+              },
+            ),
+            GoRoute(
+              path: 'banar',
+              name: 'banar',
+              pageBuilder: (context, state) {
+                return CustomTransitionPage(
+                  key: state.pageKey,
+                  child: const BanarScreen(),
+                  transitionsBuilder:
+                      (context, animation, secondaryAnimation, child) {
+                        const begin = Offset(1.0, 0.0);
+                        const end = Offset.zero;
+                        const curve = Curves.easeInOut;
+                        final tween = Tween(
+                          begin: begin,
+                          end: end,
+                        ).chain(CurveTween(curve: curve));
+                        return SlideTransition(
+                          position: animation.drive(tween),
+                          child: child,
+                        );
+                      },
                 );
               },
             ),
@@ -159,7 +199,7 @@ class _NavBarShell extends StatelessWidget {
   int _indexActual() {
     final location = state.uri.toString();
     if (location.startsWith(AppRoutes.jugar)) return 1;
-    if (location.startsWith(AppRoutes.logros))  return 2;
+    if (location.startsWith(AppRoutes.logros)) return 2;
     return 0; // home/mascota por defecto
   }
 
@@ -175,22 +215,28 @@ class _NavBarShell extends StatelessWidget {
         elevation: 8,
         onTap: (index) {
           switch (index) {
-            case 0: context.go(AppRoutes.home);    break;
-            case 1: context.go(AppRoutes.jugar); break;
-            case 2: context.go(AppRoutes.logros);  break;
+            case 0:
+              context.go(AppRoutes.home);
+              break;
+            case 1:
+              context.go(AppRoutes.jugar);
+              break;
+            case 2:
+              context.go(AppRoutes.logros);
+              break;
           }
         },
         items: const [
           BottomNavigationBarItem(
-            icon: Icon(Icons.pets, size:32),
+            icon: Icon(Icons.pets, size: 32),
             label: 'Mascota',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.toys_outlined, size:32),
+            icon: Icon(Icons.toys_outlined, size: 32),
             label: 'Jugar',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.emoji_events, size:32),
+            icon: Icon(Icons.emoji_events, size: 32),
             label: 'Logros',
           ),
         ],
