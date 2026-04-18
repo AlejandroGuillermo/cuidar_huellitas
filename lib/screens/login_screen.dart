@@ -1,5 +1,6 @@
 import 'package:cuidar_huellitas/core/app_colors.dart';
 import 'package:cuidar_huellitas/core/app_router.dart';
+import 'package:cuidar_huellitas/widgets/auth/auth_widgets.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -61,6 +62,7 @@ class _LoginScreenState extends State<LoginScreen> {
       _errorFirebaseCorreo = null;
       _errorFirebasePassword = null;
     });
+
     if (!_formKey.currentState!.validate()) return;
 
     setState(() {
@@ -141,7 +143,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Te enviamos un correo para restablecer tu contrasena'),
+          content: Text('Te enviamos un correo para restablecer tu contraseña'),
         ),
       );
     } on FirebaseAuthException catch (e) {
@@ -161,207 +163,81 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final size = MediaQuery.of(context).size;
 
-    return GestureDetector(
-      onTap: () => FocusScope.of(context).unfocus(),
-      child: Scaffold(
-        body: DecoratedBox(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Color(0xFFE4FFD9), Color(0xFFBFF3B1), Color(0xFF93E37B)],
-            ),
-          ),
-          child: Stack(
-            children: [
-              const _LoginBackground(),
-              SafeArea(
-                child: Center(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 20,
-                    ),
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth: size.width > 480 ? 430 : double.infinity,
-                      ),
-                      child: Column(
-                        children: [
-                          const _LoginHero(),
-                          const SizedBox(height: 24),
-                          _LoginCard(
-                            errorMessage: _errorMessage,
-                            formKey: _formKey,
-                            correoController: _correoController,
-                            passwordController: _passwordController,
-                            verPassword: _verPassword,
-                            cargando: _cargando,
-                            onTogglePassword: () {
-                              setState(() => _verPassword = !_verPassword);
-                            },
-                            onForgotPassword: _cargando
-                                ? null
-                                : _recuperarContrasena,
-                            onLogin: _cargando ? null : _iniciarSesion,
-                            onRegister: () => context.push(AppRoutes.register),
-                            onEmailChanged: () {
-                              if (_errorFirebaseCorreo != null) {
-                                setState(() => _errorFirebaseCorreo = null);
-                                _formKey.currentState!.validate();
-                              }
-                            },
-                            onPasswordChanged: () {
-                              if (_errorFirebasePassword != null) {
-                                setState(() => _errorFirebasePassword = null);
-                                _formKey.currentState!.validate();
-                              }
-                            },
-                            validarEmail: _validarEmail,
-                            validarPassword: _validarPassword,
-                            theme: theme,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LoginBackground extends StatelessWidget {
-  const _LoginBackground();
-
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: Stack(
-        children: const [
-          Positioned(
+    return AuthScaffold(
+      gradientColors: const [
+        Color(0xFFE4FFD9),
+        Color(0xFFBFF3B1),
+        Color(0xFF93E37B),
+      ],
+      background: const AuthBackground(
+        circles: [
+          AuthCircleData(
             top: -60,
             left: -40,
-            child: _GlowCircle(size: 170, color: Color(0x55FFFFFF)),
+            size: 170,
+            color: Color(0x55FFFFFF),
           ),
-          Positioned(
+          AuthCircleData(
             top: 120,
             right: -30,
-            child: _GlowCircle(size: 120, color: Color(0x30FFFFFF)),
+            size: 120,
+            color: Color(0x30FFFFFF),
           ),
-          Positioned(
+          AuthCircleData(
             bottom: 140,
             left: -20,
-            child: _GlowCircle(size: 110, color: Color(0x28FFFFFF)),
+            size: 110,
+            color: Color(0x28FFFFFF),
           ),
-          Positioned(
+          AuthCircleData(
             bottom: -40,
             right: 10,
-            child: _GlowCircle(size: 180, color: Color(0x25FFFFFF)),
+            size: 180,
+            color: Color(0x25FFFFFF),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _GlowCircle extends StatelessWidget {
-  final double size;
-  final Color color;
-
-  const _GlowCircle({required this.size, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-    );
-  }
-}
-
-class _LoginHero extends StatelessWidget {
-  const _LoginHero();
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Stack(
-          alignment: Alignment.center,
-          children: [
-            Container(
-              width: 170,
-              height: 170,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.24),
-              ),
-            ),
-            Container(
-              width: 138,
-              height: 138,
-              decoration: const BoxDecoration(
-                color: Color(0xFFD9D9D9),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0x22000000),
-                    blurRadius: 24,
-                    offset: Offset(0, 12),
-                  ),
-                ],
-              ),
-              child: const Center(
-                child: Icon(Icons.pets_rounded, size: 58, color: Colors.white),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 18),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.88),
-            borderRadius: BorderRadius.circular(30),
+      child: Column(
+        children: [
+          const AuthHero(
+            chipText: 'Tu mascota te estaba esperando',
+            title: 'Bienvenido de nuevo',
+            subtitle:
+                'Inicia sesion para seguir cuidando, jugando y acompanando a tu mascota.',
           ),
-          child: const Text(
-            'Tu mascota te estaba esperando',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textoPrincipal,
-            ),
+          const SizedBox(height: 24),
+          _LoginCard(
+            errorMessage: _errorMessage,
+            formKey: _formKey,
+            correoController: _correoController,
+            passwordController: _passwordController,
+            verPassword: _verPassword,
+            cargando: _cargando,
+            onTogglePassword: () {
+              setState(() => _verPassword = !_verPassword);
+            },
+            onForgotPassword: _cargando ? null : _recuperarContrasena,
+            onLogin: _cargando ? null : _iniciarSesion,
+            onRegister: () => context.push(AppRoutes.register),
+            onEmailChanged: () {
+              if (_errorFirebaseCorreo != null) {
+                setState(() => _errorFirebaseCorreo = null);
+                _formKey.currentState!.validate();
+              }
+            },
+            onPasswordChanged: () {
+              if (_errorFirebasePassword != null) {
+                setState(() => _errorFirebasePassword = null);
+                _formKey.currentState!.validate();
+              }
+            },
+            validarEmail: _validarEmail,
+            validarPassword: _validarPassword,
+            theme: theme,
           ),
-        ),
-        const SizedBox(height: 14),
-        const Text(
-          'Bienvenido de nuevo',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 34,
-            fontWeight: FontWeight.w800,
-            color: AppColors.textoPrincipal,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Inicia sesion para seguir cuidando, jugando y acompanando a tu mascota.',
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontSize: 15,
-            height: 1.45,
-            color: AppColors.textoPrincipal.withValues(alpha: 0.75),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -403,39 +279,29 @@ class _LoginCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(22, 26, 22, 24),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(34),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.7)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x220F2D14),
-            blurRadius: 28,
-            offset: Offset(0, 14),
-          ),
-        ],
-      ),
+    return AuthCard(
       child: Form(
         key: formKey,
         child: AutofillGroup(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const _InfoBanner(),
+              const AuthInfoBanner(
+                icon: Icons.favorite_border_rounded,
+                message:
+                    'Entra para continuar con el cuidado diario de tu mascota.',
+              ),
               AnimatedSwitcher(
                 duration: const Duration(milliseconds: 220),
                 child: errorMessage == null
                     ? const SizedBox(height: 18)
                     : Padding(
                         padding: const EdgeInsets.only(top: 18),
-                        child: _ErrorCard(message: errorMessage!),
+                        child: AuthErrorCard(message: errorMessage!),
                       ),
               ),
               const SizedBox(height: 18),
-              _SectionLabel(
+              const AuthFieldLabel(
                 title: 'Correo electronico',
                 icon: Icons.mail_outline_rounded,
               ),
@@ -447,14 +313,16 @@ class _LoginCard extends StatelessWidget {
                 validator: validarEmail,
                 autofillHints: const [AutofillHints.email],
                 onChanged: (_) => onEmailChanged(),
-                decoration: _inputDecoration(
+                decoration: buildAuthInputDecoration(
                   hint: 'nombre@correo.com',
                   prefixIcon: Icons.alternate_email_rounded,
+                  accentColor: AppColors.azulPrincipal,
+                  fillColor: AppColors.fondoPrincipal,
                 ),
               ),
               const SizedBox(height: 18),
-              _SectionLabel(
-                title: 'Contrasena',
+              const AuthFieldLabel(
+                title: 'Contraseña',
                 icon: Icons.lock_outline_rounded,
               ),
               const SizedBox(height: 8),
@@ -467,9 +335,11 @@ class _LoginCard extends StatelessWidget {
                 onFieldSubmitted: (_) => onLogin?.call(),
                 onChanged: (_) => onPasswordChanged(),
                 decoration:
-                    _inputDecoration(
+                    buildAuthInputDecoration(
                       hint: 'Tu contraseña',
                       prefixIcon: Icons.key_rounded,
+                      accentColor: AppColors.azulPrincipal,
+                      fillColor: AppColors.fondoPrincipal,
                     ).copyWith(
                       suffixIcon: IconButton(
                         onPressed: onTogglePassword,
@@ -492,7 +362,7 @@ class _LoginCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 6),
                   ),
                   child: const Text(
-                    'Olvidaste tu contrasena?',
+                    'Olvidaste tu contraseña?',
                     style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                   ),
                 ),
@@ -578,142 +448,6 @@ class _LoginCard extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-
-  InputDecoration _inputDecoration({
-    required String hint,
-    required IconData prefixIcon,
-  }) {
-    return InputDecoration(
-      hintText: hint,
-      hintStyle: const TextStyle(
-        color: AppColors.textoSecundario,
-        fontSize: 14,
-      ),
-      filled: true,
-      fillColor: AppColors.fondoPrincipal,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
-      prefixIcon: Padding(
-        padding: const EdgeInsets.only(left: 10, right: 8),
-        child: Icon(prefixIcon, color: AppColors.azulPrincipal, size: 20),
-      ),
-      prefixIconConstraints: const BoxConstraints(minWidth: 44),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(22),
-        borderSide: BorderSide(
-          color: AppColors.verdePrincipal.withValues(alpha: 0.20),
-        ),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(22),
-        borderSide: const BorderSide(
-          color: AppColors.verdePrincipal,
-          width: 1.6,
-        ),
-      ),
-      errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(22),
-        borderSide: const BorderSide(color: AppColors.rosa),
-      ),
-      focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(22),
-        borderSide: const BorderSide(color: AppColors.rosa, width: 1.5),
-      ),
-    );
-  }
-}
-
-class _InfoBanner extends StatelessWidget {
-  const _InfoBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppColors.azulPrincipal.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: const Row(
-        children: [
-          Icon(
-            Icons.favorite_border_rounded,
-            color: AppColors.azulPrincipal,
-            size: 20,
-          ),
-          SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              'Entra para continuar con el cuidado diario de tu mascota.',
-              style: TextStyle(
-                fontSize: 13.5,
-                height: 1.35,
-                color: AppColors.textoPrincipal,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ErrorCard extends StatelessWidget {
-  final String message;
-
-  const _ErrorCard({required this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      key: ValueKey(message),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppColors.rosa.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.error_outline_rounded, color: AppColors.rosa),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message,
-              style: const TextStyle(
-                color: AppColors.rosa,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SectionLabel extends StatelessWidget {
-  final String title;
-  final IconData icon;
-
-  const _SectionLabel({required this.title, required this.icon});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 17, color: AppColors.textoPrincipal),
-        const SizedBox(width: 8),
-        Text(
-          title,
-          style: const TextStyle(
-            color: AppColors.textoPrincipal,
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
     );
   }
 }

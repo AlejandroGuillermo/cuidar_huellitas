@@ -1,9 +1,10 @@
-import 'package:cuidar_huellitas/core/app_router.dart';
-import 'package:cuidar_huellitas/Models/usuario_model.dart';
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../core/app_colors.dart';
+import 'package:cuidar_huellitas/Models/usuario_model.dart';
+import 'package:cuidar_huellitas/core/app_colors.dart';
+import 'package:cuidar_huellitas/core/app_router.dart';
+import 'package:cuidar_huellitas/widgets/auth/auth_widgets.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -18,11 +19,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _nombreController = TextEditingController();
   final _correoController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
   final _firebaseAuth = FirebaseAuth.instance;
 
   bool _verPassword = false;
+  bool _verConfirmPassword = false;
   bool _cargando = false;
-  String _tipoSeleccionado = 'niño'; // Por defecto es niño
+  String _tipoSeleccionado = 'nino';
   String? _errorMessage;
 
   @override
@@ -30,6 +33,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _nombreController.dispose();
     _correoController.dispose();
     _passwordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
@@ -39,389 +43,542 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   String? _validarEmail(String? value) {
-    if (value == null || value.trim().isEmpty) return 'El correo es requerido';
-    if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value)) return 'Ingresa un correo válido';
+    if (value == null || value.trim().isEmpty) {
+      return 'El correo es requerido';
+    }
+    if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value.trim())) {
+      return 'Ingresa un correo valido';
+    }
     return null;
   }
 
   String? _validarPassword(String? value) {
-    if (value == null || value.isEmpty) return 'La contraseña es requerida';
-    if (value.length < 6) return 'Mínimo 6 caracteres';
+    if (value == null || value.isEmpty) {
+      return 'La contrasena es requerida';
+    }
+    if (value.length < 6) {
+      return 'Minimo 6 caracteres';
+    }
+    return null;
+  }
+
+  String? _validarConfirmacion(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Confirma tu contrasena';
+    }
+    if (value != _passwordController.text) {
+      return 'Las contrasenas no coinciden';
+    }
     return null;
   }
 
   Future<void> _crearCuenta() async {
+    FocusScope.of(context).unfocus();
+
     if (!_formKey.currentState!.validate()) return;
-    setState(() { _cargando = true; _errorMessage = null; });
+
+    setState(() {
+      _cargando = true;
+      _errorMessage = null;
+    });
 
     try {
-      // Crea la cuenta con email y contraseña
-      UserCredential userCredential = await _firebaseAuth.createUserWithEmailAndPassword(
+      final userCredential = await _firebaseAuth.createUserWithEmailAndPassword(
         email: _correoController.text.trim(),
         password: _passwordController.text,
       );
-      
-      await userCredential.user?.updateDisplayName(_nombreController.text.trim());
 
-      // Si la cuenta se creó correctamente, guardamos el usuario en Firestore
+      await userCredential.user?.updateDisplayName(
+        _nombreController.text.trim(),
+      );
+
       if (userCredential.user != null) {
-        
-        // 1. Instancias tu modelo con los datos del formulario
         final nuevoUsuario = UsuarioModel(
           idUsuario: userCredential.user!.uid,
           nombre: _nombreController.text.trim(),
           correo: _correoController.text.trim(),
-          tipoUsuario: _tipoSeleccionado, // Siguiendo la convención de tu modelo
+          tipoUsuario: _tipoSeleccionado == 'nino' ? 'niño' : _tipoSeleccionado,
         );
 
-        // 2. Lo mandas a Firestore usando tu método toFirestore()
         await FirebaseFirestore.instance
             .collection('usuarios')
             .doc(nuevoUsuario.idUsuario)
             .set(nuevoUsuario.toFirestore());
       }
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('¡Cuenta creada con éxito! 🐶')),
-        );
-        if (_tipoSeleccionado == 'niño') {
-          context.go(AppRoutes.adopcion);
-        } else {
-          //Cambiar esto por AppRoutes.tutorDashboard cuando lo crees
-          //context.go(AppRoutes.home);
-          context.go(AppRoutes.adopcion); // Por ahora los tutores también van a adopción 
-        }
-      }
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Cuenta creada con exito')));
+      context.go(AppRoutes.adopcion);
     } on FirebaseAuthException catch (e) {
-      String mensaje = 'Error al crear la cuenta';
+      String mensaje = 'No pudimos crear la cuenta';
+
       if (e.code == 'weak-password') {
-        mensaje = 'La contraseña es muy débil';
+        mensaje = 'La contrasena es muy debil';
+      } else if (e.code == 'email-already-in-use') {
+        mensaje = 'El correo ya esta registrado';
+      } else if (e.code == 'invalid-email') {
+        mensaje = 'Correo invalido';
+      } else if (e.code == 'too-many-requests') {
+        mensaje = 'Demasiados intentos. Espera un momento e intentalo de nuevo';
       }
-      else if (e.code == 'email-already-in-use') {
-        mensaje = 'El correo ya está registrado';
-      }
-      else if (e.code == 'invalid-email') {
-        mensaje = 'Correo inválido';
-      }
+
       setState(() => _errorMessage = mensaje);
-    } catch (e) {
-      setState(() => _errorMessage = 'Error: $e');
+    } catch (_) {
+      setState(() => _errorMessage = 'Ocurrio un error inesperado');
     } finally {
-      if (mounted) setState(() => _cargando = false);
+      if (mounted) {
+        setState(() => _cargando = false);
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.azulPrincipal,
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _buildHeaderTexts(),
-                const SizedBox(height: 36),
-                _buildFormCard(context),
-              ],
-            ),
+    final theme = Theme.of(context);
+
+    return AuthScaffold(
+      gradientColors: const [
+        Color(0xFFE8F0FF),
+        Color(0xFFCFE0FF),
+        Color(0xFFA9C4FF),
+      ],
+      background: const AuthBackground(
+        circles: [
+          AuthCircleData(
+            top: -50,
+            left: -20,
+            size: 180,
+            color: Color(0x55FFFFFF),
           ),
-        ),
+          AuthCircleData(
+            top: 90,
+            right: -10,
+            size: 120,
+            color: Color(0x3AFFFFFF),
+          ),
+          AuthCircleData(
+            bottom: 130,
+            left: -25,
+            size: 110,
+            color: Color(0x2EFFFFFF),
+          ),
+          AuthCircleData(
+            bottom: -50,
+            right: 12,
+            size: 170,
+            color: Color(0x26FFFFFF),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          const AuthHero(
+            chipText: 'Tu nueva aventura empieza aqui',
+            title: 'Crear una cuenta',
+            subtitle:
+                'Registrate para adoptar, jugar y cuidar a tu mascota desde el primer dia.',
+          ),
+          const SizedBox(height: 24),
+          _RegisterCard(
+            formKey: _formKey,
+            nombreController: _nombreController,
+            correoController: _correoController,
+            passwordController: _passwordController,
+            confirmPasswordController: _confirmPasswordController,
+            verPassword: _verPassword,
+            verConfirmPassword: _verConfirmPassword,
+            cargando: _cargando,
+            tipoSeleccionado: _tipoSeleccionado,
+            errorMessage: _errorMessage,
+            theme: theme,
+            validarNombre: (value) =>
+                _validarVacio(value, 'El nombre es requerido'),
+            validarEmail: _validarEmail,
+            validarPassword: _validarPassword,
+            validarConfirmacion: _validarConfirmacion,
+            onTogglePassword: () {
+              setState(() => _verPassword = !_verPassword);
+            },
+            onToggleConfirmPassword: () {
+              setState(() => _verConfirmPassword = !_verConfirmPassword);
+            },
+            onTipoSeleccionado: (tipo) {
+              setState(() => _tipoSeleccionado = tipo);
+            },
+            onCrearCuenta: _cargando ? null : _crearCuenta,
+            onGoLogin: () => context.go(AppRoutes.login),
+          ),
+        ],
       ),
     );
   }
+}
 
-  // ── HEADER ANIMADO CON HUELLITA ──────────────────────────────
-  Widget _buildHeaderTexts() {
-    return TweenAnimationBuilder(
-      tween: Tween<double>(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 800),
-      curve: Curves.easeOutBack, // Efecto de rebote suave
-      builder: (context, double value, child) {
-        return Transform.translate(
-          offset: Offset(0, -30 * (1 - value)), // Viene desde arriba
-          child: Opacity(
-            // Evita que la opacidad pase de 1.0
-            opacity: value.clamp(0.0, 1.0), 
-            child: Column(
-              children: [
-                const Icon(Icons.pets, size: 50, color: Colors.white),
-                const SizedBox(height: 12),
-                const Text(
-                  'Crear una cuenta',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white, fontSize: 36, fontStyle: FontStyle.italic, fontFamily: 'Inter', fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  '¡Únete para cuidar una mascota!',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 16, fontStyle: FontStyle.italic, fontFamily: 'Inter', fontWeight: FontWeight.w600),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
+class _RegisterCard extends StatelessWidget {
+  final GlobalKey<FormState> formKey;
+  final TextEditingController nombreController;
+  final TextEditingController correoController;
+  final TextEditingController passwordController;
+  final TextEditingController confirmPasswordController;
+  final bool verPassword;
+  final bool verConfirmPassword;
+  final bool cargando;
+  final String tipoSeleccionado;
+  final String? errorMessage;
+  final ThemeData theme;
+  final String? Function(String?) validarNombre;
+  final String? Function(String?) validarEmail;
+  final String? Function(String?) validarPassword;
+  final String? Function(String?) validarConfirmacion;
+  final VoidCallback onTogglePassword;
+  final VoidCallback onToggleConfirmPassword;
+  final ValueChanged<String> onTipoSeleccionado;
+  final VoidCallback? onCrearCuenta;
+  final VoidCallback onGoLogin;
 
-  // ── TARJETA DEL FORMULARIO ANIMADA ───────────────────────────
-  Widget _buildFormCard(BuildContext context) {
-    return TweenAnimationBuilder(
-      tween: Tween<double>(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 1000), // Ligeramente más lento que el header
-      curve: Curves.easeOutCubic,
-      builder: (context, double value, Widget? child) {
-        return Transform.translate(
-          offset: Offset(0, 50 * (1 - value)), // Sube desde abajo
-          child: Opacity(
-            opacity: value.clamp(0.0, 1.0),
-            child: child!,
-          ),
-        );
-      },
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(50),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.15), 
-              blurRadius: 25, 
-              offset: const Offset(0, 10)
-            )
-          ], // Sombra más suave y moderna
-        ),
-        child: Form(
-          key: _formKey,
+  const _RegisterCard({
+    required this.formKey,
+    required this.nombreController,
+    required this.correoController,
+    required this.passwordController,
+    required this.confirmPasswordController,
+    required this.verPassword,
+    required this.verConfirmPassword,
+    required this.cargando,
+    required this.tipoSeleccionado,
+    required this.errorMessage,
+    required this.theme,
+    required this.validarNombre,
+    required this.validarEmail,
+    required this.validarPassword,
+    required this.validarConfirmacion,
+    required this.onTogglePassword,
+    required this.onToggleConfirmPassword,
+    required this.onTipoSeleccionado,
+    required this.onCrearCuenta,
+    required this.onGoLogin,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AuthCard(
+      child: Form(
+        key: formKey,
+        child: AutofillGroup(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (_errorMessage != null) ...[
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade50,
-                    borderRadius: BorderRadius.circular(16),
+              const AuthInfoBanner(
+                icon: Icons.auto_awesome_outlined,
+                message:
+                    'Tu cuenta servira para guardar avances, mascota y rutina diaria.',
+              ),
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                child: errorMessage == null
+                    ? const SizedBox(height: 18)
+                    : Padding(
+                        padding: const EdgeInsets.only(top: 18),
+                        child: AuthErrorCard(message: errorMessage!),
+                      ),
+              ),
+              const SizedBox(height: 18),
+              const AuthFieldLabel(
+                title: 'Tu nombre',
+                icon: Icons.person_outline_rounded,
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: nombreController,
+                keyboardType: TextInputType.name,
+                textInputAction: TextInputAction.next,
+                autofillHints: const [AutofillHints.name],
+                validator: validarNombre,
+                decoration: buildAuthInputDecoration(
+                  hint: 'Como quieres que te llamemos?',
+                  prefixIcon: Icons.badge_outlined,
+                  accentColor: AppColors.azulPrincipal,
+                  fillColor: const Color(0xFFF7FAFF),
+                ),
+              ),
+              const SizedBox(height: 18),
+              const AuthFieldLabel(
+                title: 'Correo electronico',
+                icon: Icons.mail_outline_rounded,
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: correoController,
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                autofillHints: const [AutofillHints.email],
+                validator: validarEmail,
+                decoration: buildAuthInputDecoration(
+                  hint: 'nombre@correo.com',
+                  prefixIcon: Icons.alternate_email_rounded,
+                  accentColor: AppColors.azulPrincipal,
+                  fillColor: const Color(0xFFF7FAFF),
+                ),
+              ),
+              const SizedBox(height: 18),
+              const AuthFieldLabel(
+                title: 'Contrasena',
+                icon: Icons.lock_outline_rounded,
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: passwordController,
+                obscureText: !verPassword,
+                textInputAction: TextInputAction.next,
+                autofillHints: const [AutofillHints.newPassword],
+                validator: validarPassword,
+                decoration:
+                    buildAuthInputDecoration(
+                      hint: 'Minimo 6 caracteres',
+                      prefixIcon: Icons.key_rounded,
+                      accentColor: AppColors.azulPrincipal,
+                      fillColor: const Color(0xFFF7FAFF),
+                    ).copyWith(
+                      suffixIcon: IconButton(
+                        onPressed: onTogglePassword,
+                        icon: Icon(
+                          verPassword
+                              ? Icons.visibility_off_rounded
+                              : Icons.visibility_rounded,
+                          color: AppColors.textoSecundario,
+                        ),
+                      ),
+                    ),
+              ),
+              const SizedBox(height: 18),
+              const AuthFieldLabel(
+                title: 'Confirmar contrasena',
+                icon: Icons.verified_user_outlined,
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: confirmPasswordController,
+                obscureText: !verConfirmPassword,
+                textInputAction: TextInputAction.done,
+                validator: validarConfirmacion,
+                onFieldSubmitted: (_) => onCrearCuenta?.call(),
+                decoration:
+                    buildAuthInputDecoration(
+                      hint: 'Escribe de nuevo tu contrasena',
+                      prefixIcon: Icons.shield_outlined,
+                      accentColor: AppColors.azulPrincipal,
+                      fillColor: const Color(0xFFF7FAFF),
+                    ).copyWith(
+                      suffixIcon: IconButton(
+                        onPressed: onToggleConfirmPassword,
+                        icon: Icon(
+                          verConfirmPassword
+                              ? Icons.visibility_off_rounded
+                              : Icons.visibility_rounded,
+                          color: AppColors.textoSecundario,
+                        ),
+                      ),
+                    ),
+              ),
+              const SizedBox(height: 24),
+              const AuthFieldLabel(
+                title: 'Quien usara la cuenta?',
+                icon: Icons.groups_2_outlined,
+              ),
+              const SizedBox(height: 12),
+              _RoleSelector(
+                tipoSeleccionado: tipoSeleccionado,
+                onSeleccionado: onTipoSeleccionado,
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                height: 56,
+                child: ElevatedButton(
+                  onPressed: onCrearCuenta,
+                  style: ElevatedButton.styleFrom(
+                    elevation: 0,
+                    backgroundColor: AppColors.azulPrincipal,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
                   ),
-                  child: Text(
-                    _errorMessage!, 
-                    textAlign: TextAlign.center, 
-                    style: TextStyle(color: Colors.red.shade700, fontSize: 14, fontWeight: FontWeight.bold)
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    child: cargando
+                        ? const SizedBox(
+                            key: ValueKey('loading'),
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.4,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text(
+                            'Comenzar aventura',
+                            key: ValueKey('text'),
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
                   ),
                 ),
-                const SizedBox(height: 16),
-              ],
-              
-              _buildLabel('Escribe tu nombre:'),
-              _buildCampoTexto(
-                controller: _nombreController,
-                hint: 'escribir nombre',
-                icono: Icons.person_outline, // Agregamos ícono
-                validador: (val) => _validarVacio(val, 'El nombre es requerido'),
-                tipoTeclado: TextInputType.name,
-                accionTeclado: TextInputAction.next,
               ),
               const SizedBox(height: 16),
-              
-              _buildLabel('Correo electrónico:'),
-              _buildCampoTexto(
-                controller: _correoController,
-                hint: 'escribir correo',
-                icono: Icons.email_outlined, // Agregamos ícono
-                validador: _validarEmail,
-                tipoTeclado: TextInputType.emailAddress,
-                accionTeclado: TextInputAction.next,
+              Text(
+                'Crearemos tu perfil y guardaremos el progreso de tu mascota para que puedas seguir donde te quedaste.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: AppColors.textoSecundario,
+                  height: 1.45,
+                ),
               ),
               const SizedBox(height: 16),
-              
-              _buildLabel('Contraseña:'),
-              _buildCampoPassword(),
-              const SizedBox(height: 32),
-
-              _buildLabel('¿Quién usará la cuenta?'),
-              _buildRoleSelector(),
-              const SizedBox(height: 32),
-              
-              _buildBotonComenzar(),
-              const SizedBox(height: 24),
-              _buildTextoLogin(),
+              TextButton(
+                onPressed: onGoLogin,
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.azulPrincipal,
+                ),
+                child: const Text.rich(
+                  TextSpan(
+                    text: 'Ya tienes cuenta? ',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                    children: [
+                      TextSpan(
+                        text: 'Iniciar sesion',
+                        style: TextStyle(
+                          color: AppColors.verdePrincipal,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
   }
+}
 
-  Widget _buildLabel(String text) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 8, bottom: 8),
-      child: Text(
-        text,
-        style: const TextStyle(color: Colors.black, fontSize: 24, fontFamily: 'Sue Ellen Francisco', fontWeight: FontWeight.w400),
-      ),
-    );
-  }
+class _RoleSelector extends StatelessWidget {
+  final String tipoSeleccionado;
+  final ValueChanged<String> onSeleccionado;
 
-  InputDecoration _inputDecorationStyle(String hint, {IconData? icono}) {
-    return InputDecoration(
-      hintText: hint,
-      hintStyle: const TextStyle(color: Colors.black38, fontFamily: 'Inter', fontSize: 16),
-      filled: true,
-      fillColor: AppColors.azulFondo,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18), // Un poco más alto
-      prefixIcon: icono != null ? Icon(icono, color: AppColors.azulPrincipal) : null,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(50),
-        borderSide: const BorderSide(color: AppColors.azulClaro),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(50),
-        borderSide: const BorderSide(color: AppColors.azulClaro),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(50),
-        borderSide: const BorderSide(color: AppColors.azulPrincipal, width: 2),
-      ),
-      errorBorder: OutlineInputBorder( // Agregué bordes rojos para errores
-        borderRadius: BorderRadius.circular(50),
-        borderSide: BorderSide(color: Colors.red.shade300, width: 1.5),
-      ),
-    );
-  }
+  const _RoleSelector({
+    required this.tipoSeleccionado,
+    required this.onSeleccionado,
+  });
 
-  Widget _buildCampoTexto({
-    required TextEditingController controller,
-    required String hint,
-    required String? Function(String?) validador,
-    required TextInputType tipoTeclado,
-    required TextInputAction accionTeclado,
-    IconData? icono, // Recibimos el ícono
-  }) {
-    return TextFormField(
-      controller: controller,
-      keyboardType: tipoTeclado,
-      validator: validador,
-      textInputAction: accionTeclado,
-      decoration: _inputDecorationStyle(hint, icono: icono),
-    );
-  }
-
-  Widget _buildCampoPassword() {
-    return TextFormField(
-      controller: _passwordController,
-      obscureText: !_verPassword,
-      validator: _validarPassword,
-      textInputAction: TextInputAction.done,
-      decoration: _inputDecorationStyle('escribir contraseña', icono: Icons.lock_outline).copyWith(
-        suffixIcon: Padding(
-          padding: const EdgeInsets.only(right: 8.0),
-          child: IconButton(
-            icon: Icon(_verPassword ? Icons.visibility_off : Icons.visibility, color: Colors.grey),
-            onPressed: () => setState(() => _verPassword = !_verPassword),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRoleSelector() {
+  @override
+  Widget build(BuildContext context) {
     return Row(
       children: [
-        Expanded(child: _roleButton('niño', Icons.child_care, 'Niño(a)')),
-        const SizedBox(width: 16),
-        Expanded(child: _roleButton('tutor', Icons.supervisor_account, 'Tutor')),
+        Expanded(
+          child: _RoleButton(
+            icono: Icons.child_care_outlined,
+            titulo: 'Niño(a)',
+            subtitulo: 'Cuenta para jugar',
+            seleccionado: tipoSeleccionado == 'niño',
+            onTap: () => onSeleccionado('niño'),
+          ),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: _RoleButton(
+            icono: Icons.supervisor_account_outlined,
+            titulo: 'Tutor',
+            subtitulo: 'Acompaña el cuidado',
+            seleccionado: tipoSeleccionado == 'tutor',
+            onTap: () => onSeleccionado('tutor'),
+          ),
+        ),
       ],
     );
   }
+}
 
-  Widget _roleButton(String valor, IconData icono, String texto) {
-    final seleccionado = _tipoSeleccionado == valor;
-    return GestureDetector(
-      onTap: () => setState(() => _tipoSeleccionado = valor),
+class _RoleButton extends StatelessWidget {
+  final IconData icono;
+  final String titulo;
+  final String subtitulo;
+  final bool seleccionado;
+  final VoidCallback onTap;
+
+  const _RoleButton({
+    required this.icono,
+    required this.titulo,
+    required this.subtitulo,
+    required this.seleccionado,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(24),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(vertical: 12),
+        duration: const Duration(milliseconds: 220),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
         decoration: BoxDecoration(
-          color: seleccionado ? AppColors.azulPrincipal : AppColors.azulFondo,
-          borderRadius: BorderRadius.circular(20),
+          color: seleccionado ? AppColors.azulPrincipal : Colors.white,
+          borderRadius: BorderRadius.circular(24),
           border: Border.all(
-            color: seleccionado ? AppColors.azulPrincipal : AppColors.azulClaro,
-            width: 2,
+            color: seleccionado
+                ? AppColors.azulPrincipal
+                : AppColors.azulPrincipal.withValues(alpha: 0.18),
+            width: 1.6,
           ),
+          boxShadow: seleccionado
+              ? const [
+                  BoxShadow(
+                    color: Color(0x224D7EFF),
+                    blurRadius: 18,
+                    offset: Offset(0, 8),
+                  ),
+                ]
+              : null,
         ),
         child: Column(
           children: [
-            Icon(icono, color: seleccionado ? Colors.white : AppColors.azulPrincipal, size: 28),
+            Icon(
+              icono,
+              size: 28,
+              color: seleccionado ? Colors.white : AppColors.azulPrincipal,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              titulo,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: seleccionado ? Colors.white : AppColors.textoPrincipal,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
             const SizedBox(height: 4),
             Text(
-              texto,
+              subtitulo,
+              textAlign: TextAlign.center,
               style: TextStyle(
-                color: seleccionado ? Colors.white : AppColors.azulPrincipal,
-                fontWeight: FontWeight.bold,
-                fontFamily: 'Inter',
-              ),
-            )
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBotonComenzar() {
-    return OutlinedButton(
-      style: OutlinedButton.styleFrom(
-        foregroundColor: Colors.black,
-        backgroundColor: Colors.white,
-        side: const BorderSide(color: AppColors.azulPrincipal, width: 2),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(50)),
-        padding: const EdgeInsets.symmetric(vertical: 16), // Un poco más alto
-        elevation: 2, // Agrega un ligero efecto 3D
-      ),
-      onPressed: _cargando ? null : _crearCuenta,
-      child: _cargando
-          ? const SizedBox(height: 24, width: 24, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.azulPrincipal))
-          : const Text('Comenzar Aventura', style: TextStyle(fontSize: 24, fontFamily: 'Sue Ellen Francisco')),
-    );
-  }
-
-  Widget _buildTextoLogin() {
-    return TextButton(
-      onPressed: () {
-        context.go(AppRoutes.login);
-      },
-      style: TextButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      ),
-      child: Text.rich(
-        TextSpan(
-          text: '¿Ya tienes cuenta? ',
-          style: const TextStyle(
-            color: AppColors.azulPrincipal, 
-            fontSize: 22, // Un poquito más grande
-            fontFamily: 'Sue Ellen Francisco',
-          ),
-          children: [
-            TextSpan(
-              text: 'Iniciar sesión',
-              style: TextStyle(
-                color: AppColors.verdePrincipal,
-                fontWeight: FontWeight.bold,
-                // Le agregamos una sombra y subrayado para que resalte más
-                decoration: TextDecoration.underline,
-                decorationColor: AppColors.verdePrincipal,
+                color: seleccionado
+                    ? Colors.white.withValues(alpha: 0.86)
+                    : AppColors.textoSecundario,
+                fontSize: 12.5,
+                height: 1.35,
               ),
             ),
           ],
         ),
-        textAlign: TextAlign.center, // Si baja a dos líneas, se centra bonito
       ),
     );
   }
