@@ -2,9 +2,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cuidar_huellitas/Models/usuario_model.dart';
 import 'package:cuidar_huellitas/core/app_colors.dart';
 import 'package:cuidar_huellitas/core/app_router.dart';
+import 'package:cuidar_huellitas/cubit/pet_cubit.dart';
 import 'package:cuidar_huellitas/widgets/auth/auth_widgets.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -74,6 +76,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   Future<void> _crearCuenta() async {
     FocusScope.of(context).unfocus();
+    final petCubit = context.read<PetCubit>();
 
     if (!_formKey.currentState!.validate()) return;
 
@@ -105,6 +108,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
             .doc(nuevoUsuario.idUsuario)
             .set(nuevoUsuario.toFirestore());
       }
+
+      await petCubit.cargarMascota();
 
       if (!mounted) return;
 

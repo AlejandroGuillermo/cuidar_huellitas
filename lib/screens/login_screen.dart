@@ -1,8 +1,10 @@
 import 'package:cuidar_huellitas/core/app_colors.dart';
 import 'package:cuidar_huellitas/core/app_router.dart';
+import 'package:cuidar_huellitas/cubit/pet_cubit.dart';
 import 'package:cuidar_huellitas/widgets/auth/auth_widgets.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -57,6 +59,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _iniciarSesion() async {
     FocusScope.of(context).unfocus();
+    final petCubit = context.read<PetCubit>();
 
     setState(() {
       _errorFirebaseCorreo = null;
@@ -75,6 +78,7 @@ class _LoginScreenState extends State<LoginScreen> {
         email: _correoController.text.trim(),
         password: _passwordController.text,
       );
+      await petCubit.cargarMascota();
 
       if (!mounted) return;
 

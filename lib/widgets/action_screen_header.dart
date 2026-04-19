@@ -3,7 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../core/app_colors.dart';
 import '../cubit/pet_cubit.dart';
 import '../cubit/pet_state.dart';
-import '../models/mascota_model.dart';
+import '../Models/mascota_model.dart';
 import 'header_widget.dart';
 
 class ActionScreenHeader extends StatelessWidget {

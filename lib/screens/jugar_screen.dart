@@ -80,7 +80,7 @@ class _JugarScreenState extends State<JugarScreen>
   List<Offset> particles = [];
 
   // ── Drag offset para transición home ──────────────────
-  double _dragOffset = 0;
+  final double _dragOffset = 0;
 
   @override
   void initState() {

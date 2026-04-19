@@ -390,366 +390,332 @@ class _BanarScreenState extends State<BanarScreen>
   }
 
   Widget _buildTub(Size size) {
-  final tubWidth = size.width * 0.62;
-  final totalHeight = size.height * 0.32;
+  // Ajustamos las proporciones al aspect-[4/3] del diseño de React
+  final tubWidth = size.width * 0.75; 
+  final tubHeight = tubWidth * 0.75; 
 
-  final bodyWidth = tubWidth * 0.96;
-  final bodyHeight = totalHeight * 0.46;
-  final rimWidth = tubWidth * 0.82;
-  final rimHeight = totalHeight * 0.11;
-  final waterWidth = tubWidth * 0.72;
-  final waterHeight = totalHeight * 0.075;
+  return Center(
+    child: GestureDetector(
+      onTap: () => setState(() => _petInTub = !_petInTub),
+      child: SizedBox(
+        width: tubWidth,
+        height: tubHeight * 1.3, // Espacio extra para el grifo y el vapor
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.bottomCenter,
+          children: [
+            // 1. Vapor de fondo (Blur)
+            Positioned(top: 0, left: tubWidth * 0.1, child: _buildSteamVapor(60, 50)),
+            Positioned(top: 20, right: tubWidth * 0.2, child: _buildSteamVapor(80, 60)),
+            Positioned(top: 40, left: tubWidth * 0.4, child: _buildSteamVapor(50, 40)),
 
-  return GestureDetector(
-    onTap: () => setState(() => _petInTub = !_petInTub),
-    child: SizedBox(
-      width: tubWidth,
-      height: totalHeight,
-      child: Stack(
-        clipBehavior: Clip.none,
-        alignment: Alignment.bottomCenter,
-        children: [
-          // sombra al piso
-          Positioned(
-            bottom: 4,
-            child: Container(
-              width: tubWidth * 0.72,
-              height: 18,
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.10),
-                borderRadius: BorderRadius.circular(100),
-              ),
+            // 2. Patas frontales (Estilo pastilla del diseño React)
+            Positioned(
+              bottom: tubHeight * 0.02,
+              left: tubWidth * 0.15,
+              child: _buildFrontalTubLeg(tubWidth),
             ),
-          ),
-
-          // grifo / tubo vertical
-          Positioned(
-            top: totalHeight * 0.10,
-            right: tubWidth * 0.16,
-            child: Container(
-              width: 18,
-              height: totalHeight * 0.22,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0xFFC7D4DB),
-                    Color(0xFF90A2AC),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.10),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
+            Positioned(
+              bottom: tubHeight * 0.02,
+              right: tubWidth * 0.15,
+              child: _buildFrontalTubLeg(tubWidth),
             ),
-          ),
 
-          // cabezal del grifo
-          Positioned(
-            top: totalHeight * 0.03,
-            right: tubWidth * 0.05,
-            child: Container(
-              width: 62,
-              height: 34,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFFDCE5EA),
-                    Color(0xFFA5B5BE),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.10),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
+            // 3. Grifo Frontal (Atrás de la bañera)
+            Positioned(
+              top: tubHeight * 0.05,
+              right: tubWidth * 0.15,
+              child: _buildFrontalFaucet(tubWidth),
+            ),
+
+            // 4. Cuerpo Principal de la Bañera (Vista Frontal)
+            Positioned(
+              bottom: tubHeight * 0.08,
+              child: Container(
+                width: tubWidth,
+                height: tubHeight * 0.85,
+                decoration: BoxDecoration(
+                  // gradient-to-b from-white via-gray-50 to-gray-200
+                  gradient: const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.white, Color(0xFFF9FAFB), Color(0xFFE5E7EB)],
                   ),
-                ],
-              ),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Positioned(
-                    left: 10,
-                    child: Container(
-                      width: 11,
-                      height: 11,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF7E9098),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.white.withValues(alpha: 0.25),
-                            blurRadius: 3,
-                            spreadRadius: 0.5,
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(80),
+                    bottomRight: Radius.circular(80),
+                    topLeft: Radius.circular(30),
+                    topRight: Radius.circular(30),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.2),
+                      blurRadius: 30,
+                      offset: const Offset(0, 15),
+                    ),
+                  ],
+                  border: Border.all(color: Colors.white, width: 8),
+                ),
+                child: Stack(
+                  children: [
+                    // Borde interior superior (Rim)
+                    Container(
+                      height: tubHeight * 0.18,
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Color(0xFFE5E7EB), Color(0xFFF3F4F6)],
+                        ),
+                        borderRadius: BorderRadius.only(
+                          topLeft: Radius.circular(20),
+                          topRight: Radius.circular(20),
+                        ),
+                        border: Border(
+                          bottom: BorderSide(color: Color(0xFFD1D5DB), width: 4),
+                        ),
+                      ),
+                    ),
+
+                    // 5. Agua y Mascota
+                    Positioned(
+                      top: tubHeight * 0.12,
+                      left: tubWidth * 0.06,
+                      right: tubWidth * 0.06,
+                      bottom: tubHeight * 0.06,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          // from-cyan-300/90 via-blue-400/90 to-blue-500/80
+                          gradient: const LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Color(0xE667E8F9), 
+                              Color(0xE660A5FA), 
+                              Color(0xCC3B82F6), 
+                            ],
                           ),
-                        ],
+                          borderRadius: BorderRadius.circular(40),
+                        ),
+                        child: Stack(
+                          clipBehavior: Clip.hardEdge,
+                          children: [
+                            // Brillo blanco difuminado en la esquina superior izquierda
+                            Positioned(
+                              top: -20,
+                              left: -10,
+                              child: Container(
+                                width: tubWidth * 0.4,
+                                height: tubHeight * 0.4,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.2),
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.white.withValues(alpha: 0.3),
+                                      blurRadius: 30,
+                                      spreadRadius: 10,
+                                    )
+                                  ],
+                                ),
+                              ),
+                            ),
+
+                            // Línea de superficie del agua
+                            Container(
+                              height: 12,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    const Color(0xFFA5F3FC).withValues(alpha: 0.6),
+                                    Colors.transparent,
+                                  ],
+                                ),
+                              ),
+                            ),
+
+                            // Burbujas estáticas emulando el array de React
+                            _buildWaterBubble(left: 20, bottom: 30, size: 12),
+                            _buildWaterBubble(left: 60, bottom: 70, size: 16),
+                            _buildWaterBubble(right: 30, bottom: 40, size: 14),
+                            _buildWaterBubble(right: 70, bottom: 20, size: 10),
+                            _buildWaterBubble(left: tubWidth * 0.4, bottom: 50, size: 18),
+
+                            // Mascota
+                            if (_petInTub)
+                              Positioned(
+                                bottom: tubHeight * 0.08, // Lo empujamos desde abajo
+                                left: 0,                  // Centrado horizontal
+                                right: 0,                 // Centrado horizontal
+                                // Al usar Positioned sin un "top", la altura es libre (infinita)
+                                child: TweenAnimationBuilder(
+                                  tween: Tween<double>(begin: 0, end: 10),
+                                  duration: const Duration(seconds: 2),
+                                  builder: (context, value, child) {
+                                    return Transform.translate(
+                                      offset: Offset(0, -value),
+                                      child: child,
+                                    );
+                                  },
+                                  child: _buildPetInTub(), // Tu mascota actual
+                                ),
+                              ),
+
+                            // Capa de agua frontal (Efecto inmersión sobre la mascota)
+                            if (_petInTub)
+                              Positioned.fill(
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                      colors: [
+                                        const Color(0xFF67E8F9).withValues(alpha: 0.2),
+                                        const Color(0xFF3B82F6).withValues(alpha: 0.4),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  Positioned(
-                    right: 10,
-                    child: Container(
-                      width: 11,
-                      height: 11,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF7E9098),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.white.withValues(alpha: 0.25),
-                            blurRadius: 3,
-                            spreadRadius: 0.5,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Container(
-                    width: 20,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF90A1AA),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // cuerpo principal
-          Positioned(
-            bottom: 18,
-            child: Container(
-              width: bodyWidth,
-              height: bodyHeight,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0xFFFFFFFF),
-                    Color(0xFFF5FAFD),
-                    Color(0xFFDCEAF1),
                   ],
                 ),
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(56),
-                  topRight: Radius.circular(56),
-                  bottomLeft: Radius.circular(30),
-                  bottomRight: Radius.circular(30),
-                ),
-                border: Border.all(
-                  color: const Color(0xFFD4E4EC),
-                  width: 2,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.15),
-                    blurRadius: 18,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
               ),
             ),
-          ),
-
-          // brillo lateral para volumen
-          Positioned(
-            bottom: 46,
-            left: tubWidth * 0.12,
-            child: Container(
-              width: tubWidth * 0.09,
-              height: bodyHeight * 0.55,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.white.withValues(alpha: 0.36),
-                    Colors.white.withValues(alpha: 0.10),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(30),
-              ),
-            ),
-          ),
-
-          // borde superior interior
-          Positioned(
-            bottom: bodyHeight * 0.62,
-            child: Container(
-              width: rimWidth,
-              height: rimHeight,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0xFFF9FDFF),
-                    Color(0xFFE6F1F6),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(60),
-                border: Border.all(
-                  color: const Color(0xFFD6E6EE),
-                  width: 2,
-                ),
-              ),
-            ),
-          ),
-
-          // cavidad interior profunda
-          Positioned(
-            bottom: bodyHeight * 0.46,
-            child: Container(
-              width: tubWidth * 0.76,
-              height: bodyHeight * 0.15,
-              decoration: BoxDecoration(
-                color: const Color(0xFFEAF5FA),
-                borderRadius: BorderRadius.circular(50),
-              ),
-            ),
-          ),
-
-          // agua
-          Positioned(
-            bottom: bodyHeight * 0.47,
-            child: Container(
-              width: waterWidth,
-              height: waterHeight,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Color(0xFFDFF7FF),
-                    Color(0xFFAFDDEB),
-                  ],
-                ),
-                borderRadius: BorderRadius.circular(50),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF9AD3E6).withValues(alpha: 0.35),
-                    blurRadius: 10,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: Stack(
-                children: [
-                  Align(
-                    alignment: Alignment.topCenter,
-                    child: Container(
-                      margin: const EdgeInsets.only(top: 4),
-                      width: waterWidth * 0.78,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.45),
-                        borderRadius: BorderRadius.circular(50),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // espuma decorativa para que se vea más cute
-          Positioned(
-            bottom: bodyHeight * 0.56,
-            left: tubWidth * 0.14,
-            child: Row(
-              children: [
-                _foamBubble(18),
-                const SizedBox(width: 4),
-                _foamBubble(13),
-                const SizedBox(width: 2),
-                _foamBubble(16),
-              ],
-            ),
-          ),
-
-          Positioned(
-            bottom: bodyHeight * 0.58,
-            right: tubWidth * 0.16,
-            child: Row(
-              children: [
-                _foamBubble(12),
-                const SizedBox(width: 3),
-                _foamBubble(17),
-              ],
-            ),
-          ),
-
-          // patas
-          Positioned(
-            bottom: 0,
-            left: tubWidth * 0.15,
-            child: _buildPremiumTubLeg(),
-          ),
-          Positioned(
-            bottom: 0,
-            right: tubWidth * 0.15,
-            child: _buildPremiumTubLeg(),
-          ),
-
-          if (_petInTub) ...[
-            Positioned(
-              bottom: bodyHeight * 0.76,
-              left: tubWidth * 0.13,
-              child: AnimatedBuilder(
-                animation: _bubbleFloat,
-                builder: (context, child) => Transform.translate(
-                  offset: Offset(0, _bubbleFloat.value),
-                  child: child,
-                ),
-                child: _buildTubBubbles(),
-              ),
-            ),
-            Positioned(
-              bottom: bodyHeight * 0.43,
-              left: tubWidth * 0.19,
-              child: _buildPetInTub(),
-            ),
-          ] else
-            Positioned(
-              bottom: bodyHeight * 0.23,
-              left: tubWidth * 0.12,
-              right: tubWidth * 0.12,
-              child: Column(
-                children: const [
-                  Icon(
-                    Icons.touch_app_rounded,
-                    color: Color(0xFF6D8B99),
-                    size: 28,
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'Toca la bañera\npara meter a tu mascota',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 12,
-                      height: 1.2,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF5A7481),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
+          ],
+        ),
       ),
+    ),
+  );
+}
+
+// ── Helpers para el nuevo diseño ────────────────────────────
+
+// Pata vista de frente (estilo cápsula)
+Widget _buildFrontalTubLeg(double tubWidth) {
+  return Container(
+    width: tubWidth * 0.08,
+    height: tubWidth * 0.15,
+    decoration: BoxDecoration(
+      gradient: const LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [Color(0xFFE5E7EB), Color(0xFF9CA3AF)], // gray-200 to gray-400
+      ),
+      borderRadius: const BorderRadius.vertical(bottom: Radius.circular(999)),
+      border: Border.all(color: const Color(0xFF6B7280), width: 2), // border-gray-500
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: 0.2),
+          blurRadius: 8,
+          offset: const Offset(0, 4),
+        )
+      ],
+    ),
+  );
+}
+
+// Grifo visto de frente
+Widget _buildFrontalFaucet(double tubWidth) {
+  return SizedBox(
+    width: tubWidth * 0.12,
+    height: tubWidth * 0.25,
+    child: Stack(
+      alignment: Alignment.topCenter,
+      children: [
+        // Cuerpo del grifo
+        Container(
+          width: tubWidth * 0.12,
+          height: tubWidth * 0.18,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFFD1D5DB), Color(0xFF6B7280)], // gray-300 to gray-500
+            ),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFF4B5563), width: 3), // gray-600
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 10,
+              )
+            ],
+          ),
+        ),
+        // Agujero por donde sale el agua
+        Positioned(
+          top: tubWidth * 0.04,
+          child: Container(
+            width: tubWidth * 0.04,
+            height: tubWidth * 0.04,
+            decoration: const BoxDecoration(
+              color: Color(0xFF60A5FA), // blue-400
+              shape: BoxShape.circle,
+            ),
+          ),
+        ),
+        // Chorro de agua
+        Positioned(
+          top: tubWidth * 0.15,
+          child: Container(
+            width: tubWidth * 0.025,
+            height: tubWidth * 0.2,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  const Color(0xFF93C5FD), // blue-300
+                  Colors.transparent,
+                ],
+              ),
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+// Burbujas
+Widget _buildWaterBubble({double? left, double? right, double? bottom, required double size}) {
+  return Positioned(
+    left: left,
+    right: right,
+    bottom: bottom,
+    child: Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.7),
+        shape: BoxShape.circle,
+      ),
+    ),
+  );
+}
+
+// Vapor simulado con sombras muy difuminadas
+Widget _buildSteamVapor(double width, double height) {
+  return Container(
+    width: width,
+    height: height,
+    decoration: BoxDecoration(
+      color: Colors.transparent,
+      shape: BoxShape.circle,
+      boxShadow: [
+        BoxShadow(
+          color: Colors.white.withValues(alpha: 0.5),
+          blurRadius: 30, // Equivale al blur-2xl de Tailwind
+          spreadRadius: 10,
+        )
+      ],
     ),
   );
 }
