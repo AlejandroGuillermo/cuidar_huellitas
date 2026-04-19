@@ -1,4 +1,4 @@
-import '../models/mascota_model.dart';
+import '../Models/mascota_model.dart';
 
 class PetState {
   final MascotaModel? mascota;
