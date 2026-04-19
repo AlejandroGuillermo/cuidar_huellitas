@@ -1,11 +1,17 @@
 import 'dart:math';
-import 'package:flutter/material.dart';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cuidar_huellitas/cubit/pet_cubit.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+
+import '../Models/mascota_model.dart';
 import '../core/app_colors.dart';
 import '../core/app_router.dart';
-import '../Models/mascota_model.dart';
+import 'adoption/adoption_view_data.dart';
+import '../widgets/adoption/adoption_widgets.dart';
 
 class AdopcionScreen extends StatefulWidget {
   const AdopcionScreen({super.key});
@@ -16,326 +22,245 @@ class AdopcionScreen extends StatefulWidget {
 
 class _AdopcionScreenState extends State<AdopcionScreen>
     with TickerProviderStateMixin {
-  String _tipoSeleccionado = 'perro';
+  late final AnimationController _controladorHero;
+  late final Animation<double> _animacionFlotacion;
+  late final AnimationController _controladorContenido;
+  late final Animation<double> _animacionEntrada;
+  late final Animation<Offset> _animacionDesplazamiento;
+  late final TextEditingController _controladorNombre;
+
+  String _tipoSeleccionado = opcionesMascotaAdopcion.first.id;
+  String _personalidadSeleccionada = opcionesPersonalidadAdopcion.first.nombre;
+  String _nombreActual = '';
   bool _guardando = false;
-  
 
-  // ── Animaciones ────────────────────────────────────────
-  late AnimationController _mascotaController;
-  late AnimationController _cardController;
-  late Animation<double> _mascotaAnim;
-  late Animation<double> _cardAnim;
+  OpcionMascotaAdopcion get _mascotaSeleccionada => opcionesMascotaAdopcion
+      .firstWhere((opcion) => opcion.id == _tipoSeleccionado);
 
-  final List<String> _nombresPerro = [
-    'Firuláis', 'Rocky', 'Max', 'Bruno', 'Toby',
-    'Charlie', 'Zeus', 'Coco', 'Beto', 'Canelo',
-  ];
-  final List<String> _nombresGato = [
-    'Luna', 'Michi', 'Nala', 'Sombra', 'Pelusa',
-    'Milo', 'Simba', 'Oreo', 'Canela', 'Gatito',
-  ];
+  OpcionPersonalidadAdopcion get _opcionPersonalidadSeleccionada =>
+      opcionesPersonalidadAdopcion.firstWhere(
+        (opcion) => opcion.nombre == _personalidadSeleccionada,
+      );
 
-  // Personalidades con emoji, descripción e impacto en la IA
-  final List<Map<String, String>> _personalidades = [
-    {
-      'nombre': 'Juguetón',
-      'emoji': '🎾',
-      'descripcion': 'Le encanta jugar, correr y estar en constante movimiento. Siempre busca divertirse.',
-      'ia': '• Energía ↓ más rápido\n• Hambre ↓ ligeramente más rápido\n• Limpieza ↓ moderado\n• Afecto ↑ rápido al jugar\n• Salud ↓ leve si energía es baja',
-    },
-    {
-      'nombre': 'Dormilón',
-      'emoji': '😴',
-      'descripcion': 'Prefiere descansar y dormir. Es tranquilo y poco activo.',
-      'ia': '• Energía ↓ lento\n• Hambre ↓ un poco más lento\n• Limpieza ↓ lento\n• Afecto ↑ lento\n• Salud ↑ estable',
-    },
-    {
-      'nombre': 'Cariñoso',
-      'emoji': '🥰',
-      'descripcion': 'Busca atención, cariño y compañía constante.',
-      'ia': '• Afecto ↑ muy rápido al interactuar\n• Afecto ↓ más rápido si se ignora\n• Energía ↓ ligeramente\n• Hambre ↓ normal\n• Salud ↓ si afecto es bajo',
-    },
-    {
-      'nombre': 'Travieso',
-      'emoji': '😈',
-      'descripcion': 'Hace travesuras constantemente y requiere atención.',
-      'ia': '• Limpieza ↓ muy rápido\n• Energía ↓ moderado\n• Hambre ↓ normal\n• Afecto ↑ variable (aleatorio)\n• Salud ↓ leve por riesgo',
-    },
-    {
-      'nombre': 'Glotón',
-      'emoji': '🍖',
-      'descripcion': 'Siempre quiere comer, le encanta la comida.',
-      'ia': '• Hambre ↓ muy rápido\n• Energía ↑ más al comer\n• Limpieza ↓ leve\n• Afecto ↑ al alimentar\n• Salud ↓ si hambre es muy baja',
-    },
-  ];
-
-  late String _nombreActual;
-  late String _personalidadActual;
-  late TextEditingController _nameController;
+  Map<String, dynamic> get _mapaPersonalidadSeleccionada => <String, dynamic>{
+    'nombre': _opcionPersonalidadSeleccionada.nombre,
+    'emoji': _opcionPersonalidadSeleccionada.emoji,
+    'resumen': _opcionPersonalidadSeleccionada.resumen,
+    'comportamientos': _opcionPersonalidadSeleccionada.comportamientos,
+  };
 
   @override
   void initState() {
     super.initState();
+    _asignarSeleccionAleatoria();
+    _controladorNombre = TextEditingController(text: _nombreActual);
 
-    // Rebote continuo de la mascota en el header
-    _mascotaController = AnimationController(
+    _controladorHero = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
+      duration: const Duration(milliseconds: 1200),
     )..repeat(reverse: true);
-
-    _mascotaAnim = Tween<double>(begin: 0, end: -12).animate(
-      CurvedAnimation(parent: _mascotaController, curve: Curves.easeInOut),
+    _animacionFlotacion = Tween<double>(begin: -8, end: 10).animate(
+      CurvedAnimation(parent: _controladorHero, curve: Curves.easeInOut),
     );
 
-    // Entrada de tarjetas al cambiar de tipo
-    _cardController = AnimationController(
+    _controladorContenido = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 400),
+      duration: const Duration(milliseconds: 550),
+    )..forward();
+    _animacionEntrada = CurvedAnimation(
+      parent: _controladorContenido,
+      curve: Curves.easeOutCubic,
     );
-    _cardAnim = CurvedAnimation(parent: _cardController, curve: Curves.easeOut);
-
-    _asignarAleatorios();
-    _nameController = TextEditingController(text: _nombreActual);
-    _cardController.forward();
+    _animacionDesplazamiento = Tween<Offset>(
+      begin: const Offset(0, 0.06),
+      end: Offset.zero,
+    ).animate(_animacionEntrada);
   }
 
   @override
   void dispose() {
-    _mascotaController.dispose();
-    _cardController.dispose();
-    _nameController.dispose();
+    _controladorHero.dispose();
+    _controladorContenido.dispose();
+    _controladorNombre.dispose();
     super.dispose();
   }
 
-  void _asignarAleatorios() {
+  void _asignarSeleccionAleatoria() {
     final random = Random();
-    final nombres = _tipoSeleccionado == 'perro' ? _nombresPerro : _nombresGato;
-    _nombreActual = nombres[random.nextInt(nombres.length)];
-    _personalidadActual =
-        _personalidades[random.nextInt(_personalidades.length)]['nombre']!;
+    _nombreActual = _nombreAleatorioPorTipo(_tipoSeleccionado, random);
+    _personalidadSeleccionada =
+        opcionesPersonalidadAdopcion[random.nextInt(
+              opcionesPersonalidadAdopcion.length,
+            )]
+            .nombre;
   }
 
-  void _otroNombre() {
-    final random = Random();
-    final nombres = _tipoSeleccionado == 'perro' ? _nombresPerro : _nombresGato;
-    String nuevo;
-    do {
-      nuevo = nombres[random.nextInt(nombres.length)];
-    } while (nuevo == _nombreActual && nombres.length > 1);
-    setState(() {
-      _nombreActual = nuevo;
-      _nameController.text = nuevo;
-    });
+  String _nombreAleatorioPorTipo(String tipo, [Random? random]) {
+    final origen = tipo == opcionesMascotaAdopcion.first.id
+        ? nombresPerroAdopcion
+        : nombresGatoAdopcion;
+    final selector = random ?? Random();
+    return origen[selector.nextInt(origen.length)];
   }
 
   void _seleccionarTipo(String tipo) {
-    _cardController.reset();
+    if (_tipoSeleccionado == tipo) return;
+
+    _controladorContenido
+      ..reset()
+      ..forward();
+
     setState(() {
       _tipoSeleccionado = tipo;
-      _asignarAleatorios();
-      _nameController.text = _nombreActual;
+      _asignarSeleccionAleatoria();
+      _controladorNombre.text = _nombreActual;
     });
-    _cardController.forward();
   }
 
-  Map<String, String> get _personalidadInfo =>
-      _personalidades.firstWhere((p) => p['nombre'] == _personalidadActual);
+  void _generarOtroNombre() {
+    final nombreAleatorio = _nombreAleatorioPorTipo(_tipoSeleccionado);
+    setState(() {
+      _nombreActual = nombreAleatorio;
+      _controladorNombre.text = nombreAleatorio;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isSmall = MediaQuery.of(context).size.width < 360;
+    final media = MediaQuery.of(context);
+    final espacioSuperior = media.padding.top;
+
     return Scaffold(
-      backgroundColor: AppColors.fondoPrincipal,
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            _buildHeader(isSmall),
-            _buildContenido(isSmall),
-          ],
+      backgroundColor: const Color(0xFFF7F9F2),
+      body: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFEAF7E4), Color(0xFFF7F9F2)],
+          ),
         ),
-      ),
-    );
-  }
-
-  // ── Header azul con mascota animada ───────────────────
-  Widget _buildHeader(bool isSmall) {
-    final emoji = _tipoSeleccionado == 'perro' ? '🐶' : '🐱';
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.only(
-        top: 56, bottom: 28,
-        left: isSmall ? 12 : 20,
-        right: isSmall ? 12 : 20,
-      ),
-      decoration: const BoxDecoration(
-        color: AppColors.azulPrincipal,
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(36)),
-      ),
-      child: Column(
-        children: [
-          const Text('Primera vez',
-              style: TextStyle(fontSize: 12, color: Color(0xFFCECBF6))),
-          const SizedBox(height: 4),
-          const Text('Adopta tu mascota',
-              style: TextStyle(
-                  fontSize: 22, fontWeight: FontWeight.w700, color: Colors.white)),
-          const SizedBox(height: 4),
-          const Text('Elige a tu nuevo amigo',
-              style: TextStyle(fontSize: 13, color: Color(0xFF8AA2FF))),
-          const SizedBox(height: 20),
-          // Mascota con rebote continuo
-          AnimatedBuilder(
-            animation: _mascotaAnim,
-            builder: (context, child) => Transform.translate(
-              offset: Offset(0, _mascotaAnim.value),
-              child: child,
+        child: Stack(
+          children: [
+            Positioned(
+              top: -80,
+              right: -50,
+              child: OrbeBrilloAdopcion(
+                tamano: 210,
+                color: Color(
+                  _mascotaSeleccionada.colorAcentoValor,
+                ).withValues(alpha: 0.18),
+              ),
             ),
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 300),
-              transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
-              child: Text(emoji,
-                  key: ValueKey(_tipoSeleccionado),
-                  style: TextStyle(fontSize: isSmall ? 64 : 80)),
+            Positioned(
+              top: 180,
+              left: -30,
+              child: OrbeBrilloAdopcion(
+                tamano: 120,
+                color: AppColors.verdePrincipal.withValues(alpha: 0.18),
+              ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Contenido ─────────────────────────────────────────
-  Widget _buildContenido(bool isSmall) {
-    return Padding(
-      padding: EdgeInsets.all(isSmall ? 14 : 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 16),
-          Center(
-            child: Text('¿Quién te acompañará?',
-                style: TextStyle(
-                  fontSize: isSmall ? 13 : 15,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textoPrincipal,
-                )),
-          ),
-          const SizedBox(height: 14),
-
-          // Tarjetas con animación de entrada
-          FadeTransition(
-            opacity: _cardAnim,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0, 0.1),
-                end: Offset.zero,
-              ).animate(_cardAnim),
-              child: Row(
-                children: [
-                  Expanded(child: _buildTarjetaMascota('perro', '🐶', 'Fiel y juguetón')),
-                  const SizedBox(width: 12),
-                  Expanded(child: _buildTarjetaMascota('gato', '🐱', 'Curioso e independiente')),
+            SafeArea(
+              bottom: false,
+              child: CustomScrollView(
+                slivers: [
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        20,
+                        espacioSuperior > 0 ? 8 : 20,
+                        20,
+                        0,
+                      ),
+                      child: BarraHeaderAdopcion(
+                        alRegresar: () => Navigator.of(context).maybePop(),
+                      ),
+                    ),
+                  ),
+                  SliverToBoxAdapter(
+                    child: FadeTransition(
+                      opacity: _animacionEntrada,
+                      child: SlideTransition(
+                        position: _animacionDesplazamiento,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 120),
+                          child: Column(
+                            children: [
+                              TarjetaHeroAdopcion(
+                                mascota: _mascotaSeleccionada,
+                                personalidad: _opcionPersonalidadSeleccionada,
+                                nombre: _nombreActual,
+                                animacionFlotacion: _animacionFlotacion,
+                              ),
+                              const SizedBox(height: 18),
+                              SelectorTipoAdopcion(
+                                opciones: opcionesMascotaAdopcion,
+                                tipoSeleccionado: _tipoSeleccionado,
+                                alSeleccionar: _seleccionarTipo,
+                              ),
+                              const SizedBox(height: 18),
+                              SeccionPersonalidad(
+                                personalidades: opcionesPersonalidadAdopcion
+                                    .map(
+                                      (opcion) => <String, dynamic>{
+                                        'nombre': opcion.nombre,
+                                        'emoji': opcion.emoji,
+                                        'resumen': opcion.resumen,
+                                        'comportamientos':
+                                            opcion.comportamientos,
+                                      },
+                                    )
+                                    .toList(),
+                                personalidadSeleccionada:
+                                    _mapaPersonalidadSeleccionada,
+                                alSeleccionar: (personalidad) {
+                                  setState(() {
+                                    _personalidadSeleccionada =
+                                        personalidad['nombre'] as String;
+                                  });
+                                },
+                              ),
+                              const SizedBox(height: 18),
+                              TarjetaNombreAdopcion(
+                                controlador: _controladorNombre,
+                                valorCompania: _mascotaSeleccionada.nombre,
+                                valorEstilo:
+                                    _opcionPersonalidadSeleccionada.nombre,
+                                colorConexionValor:
+                                    _opcionPersonalidadSeleccionada
+                                        .colorAcentoValor,
+                                colorCompaniaValor:
+                                    _mascotaSeleccionada.colorAcentoValor,
+                                alCambiar: (valor) =>
+                                    setState(() => _nombreActual = valor),
+                                alGenerarOtro: _generarOtroNombre,
+                              ),
+                              const SizedBox(height: 18),
+                              SeccionResumenAdopcion(
+                                nombreMascota: _nombreActual.isEmpty
+                                    ? 'Sin nombre'
+                                    : _nombreActual,
+                                tipoMascota: _mascotaSeleccionada.nombre,
+                                emojiMascota: _mascotaSeleccionada.emoji,
+                                personalidadSeleccionada:
+                                    _mapaPersonalidadSeleccionada,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
-          ),
-
-          const SizedBox(height: 20),
-          _buildNombre(isSmall),
-          const SizedBox(height: 16),
-          _buildPersonalidad(),
-          const SizedBox(height: 28),
-
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _guardando ? null : _adoptar,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.azulPrincipal,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 18),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18)),
-                elevation: 0,
-              ),
-              child: _guardando 
-                  ? const SizedBox(
-                      height: 20, 
-                      width: 20, 
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-                    )
-                  : Text(
-                'Adoptar a $_nombreActual ✨',
-                style: TextStyle(
-                    fontSize: isSmall ? 14 : 16, fontWeight: FontWeight.w700),
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-        ],
-      ),
-    );
-  }
-
-  // ── Tarjeta perro / gato ──────────────────────────────
-  Widget _buildTarjetaMascota(String tipo, String emoji, String descripcion) {
-    final sel = _tipoSeleccionado == tipo;
-    return GestureDetector(
-      onTap: () => _seleccionarTipo(tipo),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
-        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
-        decoration: BoxDecoration(
-          color: sel ? AppColors.azulPrincipal : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: sel ? const Color.fromARGB(255, 61, 150, 39) : AppColors.borde,
-            width: sel ? 3 : 1.5,
-          ),
-          boxShadow: sel
-              ? [BoxShadow(
-                  color: AppColors.azulPrincipal.withValues(alpha: 0.3),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4))]
-              : [],
-        ),
-        child: Column(
-          children: [
-            Text(emoji, style: const TextStyle(fontSize: 44)),
-            const SizedBox(height: 8),
-            Text(
-              tipo == 'perro' ? 'Perro' : 'Gato',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: sel ? Colors.white : AppColors.textoPrincipal,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              descripcion,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 10,
-                color: sel ? const Color(0xFFCECBF6) : AppColors.textoSecundario,
-              ),
-            ),
-            const SizedBox(height: 10),
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: sel ? AppColors.verdePrincipal : const Color(0xFFF1EFE8),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                sel ? 'Seleccionado ✓' : 'Seleccionar',
-                style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: sel ? AppColors.textoPrincipal : AppColors.textoSecundario,
-                ),
-              ),
+            BarraInferiorAdopcion(
+              titulo:
+                  'Adoptar a ${_nombreActual.isEmpty ? 'tu mascota' : _nombreActual}',
+              textoBoton: 'Adoptar',
+              colorBotonValor: _mascotaSeleccionada.colorAcentoValor,
+              estaCargando: _guardando,
+              alPresionar: _adoptar,
             ),
           ],
         ),
@@ -343,275 +268,73 @@ class _AdopcionScreenState extends State<AdopcionScreen>
     );
   }
 
-  // ── Nombre ─────────────────────────────────────────────
-  Widget _buildNombre(bool isSmall) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.borde),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Nombre asignado',
-              style: TextStyle(fontSize: 11, color: AppColors.textoSecundario)),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _nameController,
-                  style: TextStyle(
-                    fontSize: isSmall ? 16 : 20,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textoPrincipal,
-                  ),
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                  onChanged: (v) => _nombreActual = v,
-                ),
-              ),
-              GestureDetector(
-                onTap: _otroNombre,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: AppColors.verdeFondo,
-                    border: Border.all(color: AppColors.verdePrincipal),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Text('Otro nombre',
-                      style: TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF2A5C14),
-                          fontWeight: FontWeight.w600)),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ── Personalidad ───────────────────────────────────────
-  Widget _buildPersonalidad() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
-              Text('Personalidad',
-                  style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textoPrincipal)),
-              SizedBox(height: 4),
-              Text('Toca una para conocerla',
-                  style: TextStyle(
-                      fontSize: 11,
-                      color: AppColors.textoSecundario)),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        // Chips
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: _personalidades.map((p) {
-            final sel = p['nombre'] == _personalidadActual;
-            return GestureDetector(
-              onTap: () => setState(() => _personalidadActual = p['nombre']!),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: sel ? AppColors.azulPrincipal : Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                      color: sel ? AppColors.azulPrincipal : AppColors.borde),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(p['emoji']!, style: const TextStyle(fontSize: 14)),
-                    const SizedBox(width: 6),
-                    Text(
-                      p['nombre']!,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: sel ? Colors.white : AppColors.textoPrincipal,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-
-        const SizedBox(height: 14),
-
-        // Descripción + impacto IA con AnimatedSwitcher
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 300),
-          child: Container(
-            key: ValueKey(_personalidadActual),
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.azulFondo,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.azulClaro.withValues(alpha: 0.4)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(_personalidadInfo['emoji']!,
-                        style: const TextStyle(fontSize: 22)),
-                    const SizedBox(width: 8),
-                    Text(
-                      _personalidadInfo['nombre']!,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.azulPrincipal,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(_personalidadInfo['descripcion']!,
-                    style: const TextStyle(
-                        fontSize: 13, color: AppColors.textoPrincipal)),
-                const SizedBox(height: 10),
-                // Caja impacto IA
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('🤖', style: TextStyle(fontSize: 14)),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Impacto en el comportamiento',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.azulPrincipal,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _personalidadInfo['ia']!,
-                              style: const TextStyle(
-                                  fontSize: 11,
-                                  color: AppColors.textoSecundario),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ── Adoptar ────────────────────────────────────────────
   Future<void> _adoptar() async {
-    setState(() => _guardando = true); // Mostramos el loader
+    setState(() => _guardando = true);
+    final petCubit = context.read<PetCubit>();
 
     try {
-      // 1. Obtenemos el ID del usuario que está usando la app
       final userId = FirebaseAuth.instance.currentUser?.uid;
-      
       if (userId == null) {
-        throw Exception('No hay un usuario con sesión iniciada');
+        throw Exception('No hay un usuario con sesion iniciada');
       }
 
-      // 2. Preparamos la ruta en Firestore: usuarios -> [ID] -> mascotas
-      final nuevaMascotaRef = FirebaseFirestore.instance
+      final referenciaMascota = FirebaseFirestore.instance
           .collection('usuarios')
           .doc(userId)
           .collection('mascotas')
-          .doc(); // Al dejar doc() vacío, Firebase crea un ID único y aleatorio para la mascota
+          .doc();
 
-      // 3. Empaquetamos los datos en tu MascotaModel
-      final nuevaMascota = MascotaModel(
-        idMascota: nuevaMascotaRef.id,
+      final mascota = MascotaModel(
+        idMascota: referenciaMascota.id,
         nombreMascota: _nombreActual,
         tipoMascota: _tipoSeleccionado,
-        rasgo: _personalidadActual,
-        ultimaInteraccion: DateTime.now(), // Inicializamos el reloj para la IA
+        rasgo: _personalidadSeleccionada,
+        ultimaInteraccion: DateTime.now(),
       );
 
-      // 4. Lo mandamos a la nube usando toFirestore()
-      await nuevaMascotaRef.set(nuevaMascota.toFirestore());
+      await referenciaMascota.set(mascota.toFirestore());
+      await petCubit.cargarMascota();
 
       if (!mounted) return;
-
-      // 5. ¡Éxito! Mostramos el diálogo de celebración
       showDialog(
         context: context,
-        barrierDismissible: false, // Obliga al usuario a tocar el botón "¡Vamos!"
+        barrierDismissible: false,
         builder: (_) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('¡Felicidades! 🎉'),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text('Felicidades ðŸŽ‰'),
           content: Text(
             'Adoptaste a $_nombreActual.\n'
-            'Es un $_tipoSeleccionado $_personalidadActual.\n\n'
-            '${_personalidadInfo['descripcion']}',
+            'Es un $_tipoSeleccionado $_personalidadSeleccionada.\n\n'
+            '${_opcionPersonalidadSeleccionada.resumen}',
           ),
           actions: [
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.azulPrincipal,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               onPressed: () {
-                Navigator.pop(context); // Cierra el diálogo
-                context.go(AppRoutes.home); // Descomenta esto cuando tengas tu HomeScreen listo
+                Navigator.pop(context);
+                context.go(AppRoutes.home);
               },
-              child: const Text('¡Vamos! 🐾',
-                  style: TextStyle(color: Colors.white)),
+              child: const Text('Vamos', style: TextStyle(color: Colors.white)),
             ),
           ],
         ),
       );
     } catch (e) {
-      // Si algo falla (ej. se va el internet), le avisamos al usuario
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Hubo un error al adoptar: $e')),
-      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Hubo un error al adoptar: $e')));
     } finally {
-      if (mounted) setState(() => _guardando = false); // Ocultamos el loader
+      if (mounted) {
+        setState(() => _guardando = false);
+      }
     }
   }
 }
