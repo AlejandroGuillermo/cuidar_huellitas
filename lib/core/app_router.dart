@@ -9,6 +9,7 @@ import '../screens/alimentar_screen.dart';
 import '../screens/jugar_screen.dart';
 import '../screens/dormir_screen.dart';
 import '../screens/banar_screen.dart';
+import '../screens/logros_screen.dart';
 
 // ── Nombres de rutas como constantes ──────────────────────
 // Siempre usa estas constantes en lugar de strings sueltos.
@@ -184,7 +185,7 @@ final appRouter = GoRouter(
         GoRoute(
           path: AppRoutes.logros,
           name: 'logros',
-          builder: (context, state) => const Placeholder(), // LogrosScreen
+          builder: (context, state) => const LogrosScreen(), // LogrosScreen
         ),
       ],
     ),
