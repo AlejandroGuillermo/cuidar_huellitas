@@ -18,7 +18,8 @@ class AppRoutes {
   static const register = '/register';
   static const adopcion = '/adopcion';
   static const home = '/home';
-  static const aprende = '/home/aprende';
+  static const tienda = '/home/tienda';
+  static const retos = '/home/retos';
   static const logros = '/home/logros';
   static const ar = '/home/mascota/ar';
 
@@ -166,14 +167,19 @@ final appRouter = GoRouter(
           ],
         ),
         GoRoute(
+          path: AppRoutes.tienda,
+          name: 'tienda',
+          builder: (context, state) => const Placeholder(), // TiendaScreen
+        ),
+        GoRoute(
+          path: AppRoutes.retos,
+          name: 'retos',
+          builder: (context, state) => const Placeholder(), // RetosScreen
+        ),
+        GoRoute(
           path: AppRoutes.jugar,
           name: 'jugar',
           builder: (context, state) => const JugarScreen(),
-        ),
-        GoRoute(
-          path: AppRoutes.aprende,
-          name: 'aprende',
-          builder: (context, state) => const Placeholder(), //EducacionScreen
         ),
         GoRoute(
           path: AppRoutes.logros,
@@ -198,9 +204,11 @@ class _NavBarShell extends StatelessWidget {
   // Determina cuál tab está activa según la ruta actual
   int _indexActual() {
     final location = state.uri.toString();
-    if (location.startsWith(AppRoutes.jugar)) return 1;
-    if (location.startsWith(AppRoutes.logros)) return 2;
-    return 0; // home/mascota por defecto
+    if (location.startsWith(AppRoutes.tienda)) return 0;
+    if (location.startsWith(AppRoutes.retos)) return 1;
+    if (location.startsWith(AppRoutes.jugar)) return 3;
+    if (location.startsWith(AppRoutes.logros)) return 4;
+    return 2; // home/mascota por defecto
   }
 
   @override
@@ -209,6 +217,7 @@ class _NavBarShell extends StatelessWidget {
       body: child,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _indexActual(),
+        type: BottomNavigationBarType.fixed,
         selectedItemColor: AppColors.verdePrincipal,
         unselectedItemColor: AppColors.azulClaro,
         backgroundColor: Colors.white,
@@ -216,17 +225,31 @@ class _NavBarShell extends StatelessWidget {
         onTap: (index) {
           switch (index) {
             case 0:
-              context.go(AppRoutes.home);
+              context.go(AppRoutes.tienda);
               break;
             case 1:
-              context.go(AppRoutes.jugar);
+              context.go(AppRoutes.retos);
               break;
             case 2:
+              context.go(AppRoutes.home);
+              break;
+            case 3:
+              context.go(AppRoutes.jugar);
+              break;
+            case 4:
               context.go(AppRoutes.logros);
               break;
           }
         },
         items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.storefront_outlined, size: 32),
+            label: 'Tienda',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.flag_outlined, size: 32),
+            label: 'Retos',
+          ),
           BottomNavigationBarItem(
             icon: Icon(Icons.pets, size: 32),
             label: 'Mascota',
