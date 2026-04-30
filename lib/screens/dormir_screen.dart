@@ -48,6 +48,7 @@ class _DormirScreenState extends State<DormirScreen>
   late AnimationController _petFloatCtrl;
   late Animation<double> _petFloat;
   String _ultimoMensajeBloqueo = '';
+  DateTime _ultimoMensajeBloqueoAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   // ══════════════════════════════════════════════════════
   // CICLO DE VIDA
@@ -65,6 +66,7 @@ class _DormirScreenState extends State<DormirScreen>
         );
         context.read<PetCubit>().promoverSiestaANocheSiAplica(
           esNocheActual: _esNoche,
+        );
       }
     });
 
@@ -82,22 +84,29 @@ class _DormirScreenState extends State<DormirScreen>
       begin: 0,
       end: -8,
     ).animate(CurvedAnimation(parent: _petFloatCtrl, curve: Curves.easeInOut));
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _syncWorldEntry();
       await _ensureLockedSleepState();
     });
+  }
 
   Future<void> _syncWorldEntry() async {
+    if (!mounted) return;
+    final mascota = context.read<PetCubit>().state.mascota;
     if (mascota == null) return;
     await context.read<PetWorldCubit>().syncScreenEntry(
+      mascota: mascota,
       location: PetLocation.dormir,
       fallbackActivity: mascota.estaDescansando
+          ? PetActivity.sleeping
           : PetActivity.idle,
     );
   }
 
   Future<void> _ensureLockedSleepState() async {
     if (!mounted) return;
+    final petCubit = context.read<PetCubit>();
     final world = context.read<PetWorldCubit>().state;
     final mascota = petCubit.state.mascota;
     if (mascota == null) return;

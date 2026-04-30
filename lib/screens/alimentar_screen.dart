@@ -1057,7 +1057,6 @@ class _AlimentarScreenState extends State<AlimentarScreen>
               child: Text(
                 'Selecciona comida\nde la alacena',
                 textAlign: TextAlign.center,
-                  color: Colors.white54,
                 style: TextStyle(color: Colors.white54, fontSize: 14),
               ),
             ),
