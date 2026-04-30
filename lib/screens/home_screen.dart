@@ -12,6 +12,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../cubit/pet_cubit.dart';
 import '../core/app_colors.dart';
 import '../core/app_router.dart';
+import '../core/cosmetic_catalog.dart';
 import '../widgets/paw_map_widget.dart';
 import '../widgets/header_widget.dart';
 
@@ -67,7 +68,19 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             _bounceController.reverse();
           }
         });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncWorldEntry());
     // _initCameras(); // Eliminado
+  }
+
+  Future<void> _syncWorldEntry() async {
+    if (!mounted) return;
+    final mascota = context.read<PetCubit>().state.mascota;
+    if (mascota == null) return;
+    await context.read<PetWorldCubit>().syncScreenEntry(
+      mascota: mascota,
+      location: PetLocation.home,
+      fallbackActivity: PetActivity.roaming,
+    );
   }
 
   // Eliminadas funciones de cámara
@@ -94,7 +107,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       // Solo se redibujará si cambia el estado de "Cargando" o si la mascota es nueva.
       buildWhen: (previous, current) {
         return previous.isLoading != current.isLoading ||
-            previous.mascota?.nombreMascota != current.mascota?.nombreMascota;
+            previous.mascota?.nombreMascota != current.mascota?.nombreMascota ||
+            previous.mascota?.itemCabezaId != current.mascota?.itemCabezaId;
       },
       builder: (context, petState) {
         final mascota = petState.mascota;
@@ -122,6 +136,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         final petEmoji = mascota.tipoMascota.toLowerCase() == 'gato'
             ? '🐱'
             : '🐶';
+
+        final headItemEmoji = CosmeticCatalog.headEmojiFor(
+          mascota.itemCabezaId,
+        );
 
         return Scaffold(
           floatingActionButton: FloatingActionButton(
@@ -218,58 +236,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                         // 4. Este Expanded empuja la mascota para que tome el espacio sobrante
                         child: BlocBuilder<PetWorldCubit, PetWorldState>(
                           builder: (context, worldState) {
-                            final mostrarMascotaEnHome =
+                            final canShowPet =
+                                !worldState.isLocationLocked ||
                                 worldState.location == PetLocation.home;
-
-                            if (!mostrarMascotaEnHome) {
-                              return Center(
-                                child: Container(
-                                  margin: const EdgeInsets.symmetric(
-                                    horizontal: 24,
-                                  ),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 24,
-                                    vertical: 20,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.88),
-                                    borderRadius: BorderRadius.circular(28),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withValues(
-                                          alpha: 0.08,
-                                        ),
-                                        blurRadius: 14,
-                                        offset: const Offset(0, 6),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        worldState.activity ==
-                                                PetActivity.sleeping
-                                            ? '😴'
-                                            : '🐾',
-                                        style: const TextStyle(fontSize: 54),
-                                      ),
-                                      const SizedBox(height: 12),
-                                      Text(
-                                        _homeStatusText(
-                                          mascota.nombreMascota,
-                                          worldState,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w700,
-                                          color: AppColors.textoPrincipal,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                            if (!canShowPet) {
+                              return const Center(
+                                child: SizedBox(width: 1, height: 1),
                               );
                             }
 
@@ -327,6 +299,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                                   height: 1.0,
                                                 ),
                                               ),
+                                              if (headItemEmoji != null)
+                                                Positioned(
+                                                  top: -18,
+                                                  child: Text(
+                                                    headItemEmoji,
+                                                    style: const TextStyle(
+                                                      fontSize: 46,
+                                                    ),
+                                                  ),
+                                                ),
                                               if (showFeedback != null)
                                                 Positioned(
                                                   top: -30,
@@ -484,23 +466,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       },
     );
   }
-
-  String _homeStatusText(String nombreMascota, PetWorldState worldState) {
-    if (worldState.activity == PetActivity.sleeping) {
-      return '$nombreMascota esta dormido en su cuarto';
-    }
-
-    switch (worldState.location) {
-      case PetLocation.alimentar:
-        return '$nombreMascota esta en alimentar ahora mismo';
-      case PetLocation.jugar:
-        return '$nombreMascota esta jugando en otra pantalla';
-      case PetLocation.dormir:
-        return '$nombreMascota esta descansando en el dormitorio';
-      case PetLocation.home:
-        return '$nombreMascota esta explorando Home';
-    }
-  }
 }
 
 // --- Componentes Reutilizables ---
@@ -616,6 +581,10 @@ class _WorldSummaryCard extends StatelessWidget {
         return 'Jugar';
       case PetLocation.dormir:
         return 'Dormir';
+      case PetLocation.curar:
+        return 'Curar';
+      case PetLocation.banar:
+        return 'Banar';
     }
   }
 

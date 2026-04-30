@@ -8,11 +8,9 @@ class MissionRepository {
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
 
-  MissionRepository({
-    FirebaseFirestore? firestore,
-    FirebaseAuth? auth,
-  }) : _firestore = firestore ?? FirebaseFirestore.instance,
-       _auth = auth ?? FirebaseAuth.instance;
+  MissionRepository({FirebaseFirestore? firestore, FirebaseAuth? auth})
+    : _firestore = firestore ?? FirebaseFirestore.instance,
+      _auth = auth ?? FirebaseAuth.instance;
 
   Future<List<PendingMission>> loadPending(String mascotaId) async {
     final userId = _auth.currentUser?.uid;
@@ -30,5 +28,28 @@ class MissionRepository {
     return snap.docs
         .map((doc) => PendingMissionModel.fromFirestore(doc.id, doc.data()))
         .toList();
+  }
+
+  Stream<List<PendingMission>> watchPending(String mascotaId) {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null || mascotaId.isEmpty) {
+      return Stream.value(const []);
+    }
+
+    return _firestore
+        .collection('usuarios')
+        .doc(userId)
+        .collection('mascotas')
+        .doc(mascotaId)
+        .collection('misiones_activas')
+        .where('estado', isEqualTo: 'pendiente')
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map(
+                (doc) => PendingMissionModel.fromFirestore(doc.id, doc.data()),
+              )
+              .toList(),
+        );
   }
 }

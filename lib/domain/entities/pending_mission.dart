@@ -7,6 +7,7 @@ class PendingMission {
   final PetLocation location;
   final String status;
   final String? relatedItemId;
+  final int rewardCoins;
 
   const PendingMission({
     required this.id,
@@ -14,6 +15,7 @@ class PendingMission {
     required this.location,
     required this.status,
     this.relatedItemId,
+    this.rewardCoins = 0,
   });
 
   bool get isPending => status == 'pendiente';

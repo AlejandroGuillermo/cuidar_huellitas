@@ -501,7 +501,7 @@ class BaseActionValues {
 
   // Deterioro por tick (cada 30 min)
   static const double deterioroSalud    = 1.0;
-  static const double deterioroEnergia  = 1.0;
+  static const double deterioroEnergia  = 2.0;
   static const double deterioroHambre   = 2.0;
   static const double deterioroLimpieza = 1.0;
   static const double deterioroAfecto   = 2.0;

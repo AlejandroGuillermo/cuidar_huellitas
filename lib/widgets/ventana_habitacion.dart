@@ -4,9 +4,17 @@ import 'dart:math' as math;
 enum CieloModo { manana, tarde, noche }
 
 class VentanaHabitacion extends StatefulWidget {
-  final DateTime? horaSimulada; // Opcional, por si quieres forzar una hora de prueba
+  final DateTime?
+  horaSimulada; // Opcional, por si quieres forzar una hora de prueba
+  final bool? isWindowOpen;
+  final ValueChanged<bool>? onWindowToggle;
 
-  const VentanaHabitacion({super.key, this.horaSimulada});
+  const VentanaHabitacion({
+    super.key,
+    this.horaSimulada,
+    this.isWindowOpen,
+    this.onWindowToggle,
+  });
 
   @override
   State<VentanaHabitacion> createState() => _VentanaHabitacionState();
@@ -14,6 +22,26 @@ class VentanaHabitacion extends StatefulWidget {
 
 class _VentanaHabitacionState extends State<VentanaHabitacion> {
   bool _isWindowOpen = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _isWindowOpen = widget.isWindowOpen ?? true;
+  }
+
+  @override
+  void didUpdateWidget(covariant VentanaHabitacion oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isWindowOpen != null && widget.isWindowOpen != _isWindowOpen) {
+      _isWindowOpen = widget.isWindowOpen!;
+    }
+  }
+
+  void _toggleWindow() {
+    final next = !_isWindowOpen;
+    setState(() => _isWindowOpen = next);
+    widget.onWindowToggle?.call(next);
+  }
 
   CieloModo _obtenerModo() {
     final hora = (widget.horaSimulada ?? DateTime.now()).hour;
@@ -28,11 +56,15 @@ class _VentanaHabitacionState extends State<VentanaHabitacion> {
   Widget _obtenerCieloWidget(CieloModo modo, DateTime horaActual) {
     switch (modo) {
       case CieloModo.manana:
-        return _CieloManana(horaActual: horaActual); // Podríamos hacer que el sol suba aquí después!
+        return _CieloManana(
+          horaActual: horaActual,
+        ); // Podríamos hacer que el sol suba aquí después!
       case CieloModo.tarde:
         return _CieloTarde(horaActual: horaActual); // ¡Pasamos la hora aquí!
       case CieloModo.noche:
-        return _CieloNoche(horaActual: horaActual); // La noche no necesita la hora para su animación
+        return _CieloNoche(
+          horaActual: horaActual,
+        ); // La noche no necesita la hora para su animación
     }
   }
 
@@ -42,7 +74,7 @@ class _VentanaHabitacionState extends State<VentanaHabitacion> {
     final modo = _obtenerModo();
 
     return GestureDetector(
-      onTap: () => setState(() => _isWindowOpen = !_isWindowOpen),
+      onTap: _toggleWindow,
       child: Container(
         width: 180,
         height: 180,
@@ -55,7 +87,7 @@ class _VentanaHabitacionState extends State<VentanaHabitacion> {
               color: Colors.black.withValues(alpha: 0.3),
               blurRadius: 10,
               offset: const Offset(0, 5),
-            )
+            ),
           ],
         ),
         child: ClipRRect(
@@ -64,7 +96,10 @@ class _VentanaHabitacionState extends State<VentanaHabitacion> {
             children: [
               // 1. Fondo del Cielo Dinámico (Se llena todo el cuadro de la ventana)
               Positioned.fill(
-                child: _obtenerCieloWidget(modo, horaActual), // Pasamos la hora actual para que el atardecer se anime
+                child: _obtenerCieloWidget(
+                  modo,
+                  horaActual,
+                ), // Pasamos la hora actual para que el atardecer se anime
               ),
 
               // 2. Rejillas de la ventana
@@ -103,7 +138,11 @@ class _VentanaHabitacionState extends State<VentanaHabitacion> {
                   decoration: BoxDecoration(
                     color: Colors.brown[800],
                     boxShadow: const [
-                      BoxShadow(color: Colors.black26, blurRadius: 2, offset: Offset(0, 2))
+                      BoxShadow(
+                        color: Colors.black26,
+                        blurRadius: 2,
+                        offset: Offset(0, 2),
+                      ),
                     ],
                   ),
                 ),
@@ -120,20 +159,34 @@ class _VentanaHabitacionState extends State<VentanaHabitacion> {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: isLeft
-              ? [Colors.red[300]!, Colors.red[600]!, Colors.red[400]!, Colors.red[700]!]
-              : [Colors.red[700]!, Colors.red[400]!, Colors.red[600]!, Colors.red[300]!],
+              ? [
+                  Colors.red[300]!,
+                  Colors.red[600]!,
+                  Colors.red[400]!,
+                  Colors.red[700]!,
+                ]
+              : [
+                  Colors.red[700]!,
+                  Colors.red[400]!,
+                  Colors.red[600]!,
+                  Colors.red[300]!,
+                ],
           stops: const [0.0, 0.3, 0.6, 1.0],
         ),
         border: Border(
-          right: isLeft ? BorderSide(color: Colors.red[900]!, width: 2) : BorderSide.none,
-          left: !isLeft ? BorderSide(color: Colors.red[900]!, width: 2) : BorderSide.none,
+          right: isLeft
+              ? BorderSide(color: Colors.red[900]!, width: 2)
+              : BorderSide.none,
+          left: !isLeft
+              ? BorderSide(color: Colors.red[900]!, width: 2)
+              : BorderSide.none,
         ),
         boxShadow: [
           BoxShadow(
             color: Colors.black26,
             blurRadius: 5,
             offset: Offset(isLeft ? 3 : -3, 0),
-          )
+          ),
         ],
       ),
     );
@@ -152,7 +205,8 @@ class _CieloManana extends StatefulWidget {
   State<_CieloManana> createState() => _CieloMananaState();
 }
 
-class _CieloMananaState extends State<_CieloManana> with SingleTickerProviderStateMixin {
+class _CieloMananaState extends State<_CieloManana>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
 
   @override
@@ -172,11 +226,12 @@ class _CieloMananaState extends State<_CieloManana> with SingleTickerProviderSta
 
   double _calcularPosicionSol() {
     const double minutosTotalesManana = 7 * 60;
-    int minutosActuales = ((widget.horaActual.hour - 6) * 60) + widget.horaActual.minute;
+    int minutosActuales =
+        ((widget.horaActual.hour - 6) * 60) + widget.horaActual.minute;
     minutosActuales = minutosActuales.clamp(0, minutosTotalesManana.toInt());
 
     double progreso = minutosActuales / minutosTotalesManana;
-    const double posicionBaja = 170.0; 
+    const double posicionBaja = 170.0;
     const double posicionAlta = 10.0;
 
     return posicionBaja - ((posicionBaja - posicionAlta) * progreso);
@@ -184,15 +239,16 @@ class _CieloMananaState extends State<_CieloManana> with SingleTickerProviderSta
 
   // ── NUEVA Lógica de Fases para la Mañana ──
   List<Color> _calcularColoresCielo() {
-    int minutosDesdeLas6 = ((widget.horaActual.hour - 6) * 60) + widget.horaActual.minute;
+    int minutosDesdeLas6 =
+        ((widget.horaActual.hour - 6) * 60) + widget.horaActual.minute;
 
     // Paletas de color
     const nocheTop = Color(0xFF0F2027);
     const nocheBottom = Color(0xFF203A43);
-    
-    const naranjaTop = Color(0xFFFFA07A); 
+
+    const naranjaTop = Color(0xFFFFA07A);
     const naranjaBottom = Color(0xFFFFDAB9);
-    
+
     const diaTop = Color(0xFF6DD5FA);
     const diaBottom = Color(0xFFFFFFFF);
 
@@ -255,7 +311,7 @@ class _CieloMananaState extends State<_CieloManana> with SingleTickerProviderSta
               color: const Color(0xFFFFD700).withValues(alpha: 0.5),
               blurRadius: 20,
               spreadRadius: 8,
-            )
+            ),
           ],
         ),
       ),
@@ -299,13 +355,17 @@ class _CieloTarde extends StatefulWidget {
   State<_CieloTarde> createState() => _CieloTardeState();
 }
 
-class _CieloTardeState extends State<_CieloTarde> with SingleTickerProviderStateMixin {
+class _CieloTardeState extends State<_CieloTarde>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 30))..repeat(); 
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 30),
+    )..repeat();
   }
 
   @override
@@ -315,41 +375,56 @@ class _CieloTardeState extends State<_CieloTarde> with SingleTickerProviderState
   }
 
   List<Color> _calcularColoresTarde() {
-    int minDesde13 = ((widget.horaActual.hour - 13) * 60) + widget.horaActual.minute;
+    int minDesde13 =
+        ((widget.horaActual.hour - 13) * 60) + widget.horaActual.minute;
     const azulDia = [Color(0xFF6DD5FA), Color(0xFFFFFFFF)];
     const sunset = [Color(0xFF2E1C2B), Color(0xFFE94E65), Color(0xFFF9A06F)];
     const noche = [Color(0xFF0F2027), Color(0xFF203A43)];
 
     if (minDesde13 < 180) return azulDia; // 1pm - 4pm
-    if (minDesde13 < 300) { // 4pm - 6pm (Cielo tornando a naranja)
+    if (minDesde13 < 300) {
+      // 4pm - 6pm (Cielo tornando a naranja)
       double p = (minDesde13 - 180) / 120.0;
-      return [Color.lerp(azulDia[0], sunset[0], p)!, Color.lerp(azulDia[1], sunset[2], p)!];
+      return [
+        Color.lerp(azulDia[0], sunset[0], p)!,
+        Color.lerp(azulDia[1], sunset[2], p)!,
+      ];
     }
     if (minDesde13 < 330) return sunset; // 6pm - 6:30pm
-    if (minDesde13 < 420) { // 6:30pm - 8pm (Transición a noche)
+    if (minDesde13 < 420) {
+      // 6:30pm - 8pm (Transición a noche)
       double p = (minDesde13 - 330) / 90.0;
-      return [Color.lerp(sunset[0], noche[0], p)!, Color.lerp(sunset[2], noche[1], p)!];
+      return [
+        Color.lerp(sunset[0], noche[0], p)!,
+        Color.lerp(sunset[2], noche[1], p)!,
+      ];
     }
     return noche;
   }
 
   List<Color> _calcularColoresSol() {
-    int minDesde13 = ((widget.horaActual.hour - 13) * 60) + widget.horaActual.minute;
+    int minDesde13 =
+        ((widget.horaActual.hour - 13) * 60) + widget.horaActual.minute;
     const solDia = [Color(0xFFFFFDE4), Color(0xFFFFD700)];
     const solAtardecer = [Color(0xFFFFD26F), Color(0xFFE64A19)];
 
     if (minDesde13 < 270) return solDia; // 🌟 Empieza a cambiar a las 17:30
-    if (minDesde13 < 360) { // Transición de 17:30 a 19:00
+    if (minDesde13 < 360) {
+      // Transición de 17:30 a 19:00
       double p = (minDesde13 - 270) / 90.0;
-      return [Color.lerp(solDia[0], solAtardecer[0], p)!, Color.lerp(solDia[1], solAtardecer[1], p)!];
+      return [
+        Color.lerp(solDia[0], solAtardecer[0], p)!,
+        Color.lerp(solDia[1], solAtardecer[1], p)!,
+      ];
     }
     return solAtardecer;
   }
 
   double _calcularPosicionSol() {
-    int minDesde16 = ((widget.horaActual.hour - 16) * 60) + widget.horaActual.minute;
-    double progreso = (minDesde16 / 240.0).clamp(0.0, 1.0); 
-    return 10.0 + (175.0 * progreso); 
+    int minDesde16 =
+        ((widget.horaActual.hour - 16) * 60) + widget.horaActual.minute;
+    double progreso = (minDesde16 / 240.0).clamp(0.0, 1.0);
+    return 10.0 + (175.0 * progreso);
   }
 
   @override
@@ -380,12 +455,17 @@ class _CieloTardeState extends State<_CieloTarde> with SingleTickerProviderState
       top: topPosition,
       right: 30,
       child: Container(
-        width: 45, height: 45,
+        width: 45,
+        height: 45,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           gradient: RadialGradient(colors: coloresSol),
           boxShadow: [
-            BoxShadow(color: coloresSol[1].withValues(alpha: .6), blurRadius: 20, spreadRadius: 8)
+            BoxShadow(
+              color: coloresSol[1].withValues(alpha: .6),
+              blurRadius: 20,
+              spreadRadius: 8,
+            ),
           ],
         ),
       ),
@@ -396,10 +476,26 @@ class _CieloTardeState extends State<_CieloTarde> with SingleTickerProviderState
     final double nube1X = 200 - (_controller.value * 300);
     final double avanceNube2 = (_controller.value + 0.5) % 1.0;
     final double nube2X = 200 - (avanceNube2 * 250);
-    return Stack(children: [
-      Positioned(top: 70, left: nube2X, child: const Opacity(opacity: 0.6, child: Text('☁️', style: TextStyle(fontSize: 24)))),
-      Positioned(top: 35, left: nube1X, child: const Opacity(opacity: 0.9, child: Text('☁️', style: TextStyle(fontSize: 36)))),
-    ]);
+    return Stack(
+      children: [
+        Positioned(
+          top: 70,
+          left: nube2X,
+          child: const Opacity(
+            opacity: 0.6,
+            child: Text('☁️', style: TextStyle(fontSize: 24)),
+          ),
+        ),
+        Positioned(
+          top: 35,
+          left: nube1X,
+          child: const Opacity(
+            opacity: 0.9,
+            child: Text('☁️', style: TextStyle(fontSize: 36)),
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -413,8 +509,8 @@ class _CieloNoche extends StatefulWidget {
 }
 
 // ⚠️ CAMBIO: Usamos TickerProviderStateMixin para manejar 2 controladores
-class _CieloNocheState extends State<_CieloNoche> with TickerProviderStateMixin {
-  
+class _CieloNocheState extends State<_CieloNoche>
+    with TickerProviderStateMixin {
   // Controlador 1: Parpadeo RÁPIDO de estrellas
   late AnimationController _controllerStars;
   // Controlador 2: Movimiento LENTO de nubes
@@ -441,7 +537,7 @@ class _CieloNocheState extends State<_CieloNoche> with TickerProviderStateMixin 
   void dispose() {
     // ⚠️ CRÍTICO: Limpiar ambos controladores
     _controllerStars.dispose();
-    _controllerClouds.dispose(); 
+    _controllerClouds.dispose();
     super.dispose();
   }
 
@@ -459,7 +555,8 @@ class _CieloNocheState extends State<_CieloNoche> with TickerProviderStateMixin 
     int minDesde20 = _obtenerMinutosDesde20();
     if (minDesde20 < 240) {
       double progreso = minDesde20 / 240.0;
-      return 160.0 - (115.0 * progreso); // Sale desde abajo (130) hacia arriba (15)
+      return 160.0 -
+          (115.0 * progreso); // Sale desde abajo (130) hacia arriba (15)
     }
     return 15.0; // Se queda arriba después de medianoche
   }
@@ -471,7 +568,7 @@ class _CieloNocheState extends State<_CieloNoche> with TickerProviderStateMixin 
       double progresoFade = (minDesde20 - 510) / 90.0;
       return (1.0 - progresoFade).clamp(0.0, 1.0);
     }
-    return 1.0; 
+    return 1.0;
   }
 
   // ── Lógica de Opacidad para Estrellas y Nubes ──
@@ -490,15 +587,15 @@ class _CieloNocheState extends State<_CieloNoche> with TickerProviderStateMixin 
     }
 
     // 3. De 12:00 AM a 4:30 AM -> Totalmente visibles
-    return 1.0; 
+    return 1.0;
   }
   // ─────────────────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
     // La luna siempre es visible al inicio, solo se apaga al amanecer
-    final opacidadLuna = _calcularOpacidadLuna(); 
-    
+    final opacidadLuna = _calcularOpacidadLuna();
+
     // Las estrellas/nubes empiezan invisibles, se encienden al inicio, y se apagan al amanecer
     final opacidadCielo = _calcularOpacidadEstrellasYNubes();
 
@@ -522,10 +619,35 @@ class _CieloNocheState extends State<_CieloNoche> with TickerProviderStateMixin 
               return Stack(
                 children: [
                   // ⚠️ Le pasamos opacidadCielo a baseOpacity
-                  _buildEstrella(top: 25, left: 20, size: 16, delay: 0.0, baseOpacity: opacidadCielo),
-                  _buildEstrella(top: 70, left: 40, size: 12, delay: 0.3, baseOpacity: opacidadCielo),
-                  _buildEstrella(top: 100, right: 60, size: 14, delay: 0.6, baseOpacity: opacidadCielo),
-                  _buildEstrella(top: 40, right: 70, size: 10, delay: 0.8, isSparkle: true, baseOpacity: opacidadCielo),
+                  _buildEstrella(
+                    top: 25,
+                    left: 20,
+                    size: 16,
+                    delay: 0.0,
+                    baseOpacity: opacidadCielo,
+                  ),
+                  _buildEstrella(
+                    top: 70,
+                    left: 40,
+                    size: 12,
+                    delay: 0.3,
+                    baseOpacity: opacidadCielo,
+                  ),
+                  _buildEstrella(
+                    top: 100,
+                    right: 60,
+                    size: 14,
+                    delay: 0.6,
+                    baseOpacity: opacidadCielo,
+                  ),
+                  _buildEstrella(
+                    top: 40,
+                    right: 70,
+                    size: 10,
+                    delay: 0.8,
+                    isSparkle: true,
+                    baseOpacity: opacidadCielo,
+                  ),
                 ],
               );
             },
@@ -554,10 +676,10 @@ class _CieloNocheState extends State<_CieloNoche> with TickerProviderStateMixin 
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: Colors.white.withValues(alpha: 0.26 * opacidad), 
+                color: Colors.white.withValues(alpha: 0.26 * opacidad),
                 blurRadius: 35,
                 spreadRadius: 8,
-              )
+              ),
             ],
           ),
           child: const Text('🌙', style: TextStyle(fontSize: 50)),
@@ -575,7 +697,9 @@ class _CieloNocheState extends State<_CieloNoche> with TickerProviderStateMixin 
     required double baseOpacity, // Pasamos la opacidad general de la noche
     bool isSparkle = false,
   }) {
-    final double curva = math.sin((_controllerStars.value * 2 * math.pi) + (delay * 2 * math.pi));
+    final double curva = math.sin(
+      (_controllerStars.value * 2 * math.pi) + (delay * 2 * math.pi),
+    );
     // Brillo parpadeante
     final double opacidadParpadeo = 0.2 + (((curva + 1) / 2) * 0.8);
 
@@ -583,7 +707,9 @@ class _CieloNocheState extends State<_CieloNoche> with TickerProviderStateMixin 
     final double opacidadFinal = opacidadParpadeo * baseOpacity;
 
     return Positioned(
-      top: top, left: left, right: right,
+      top: top,
+      left: left,
+      right: right,
       child: Opacity(
         opacity: opacidadFinal,
         child: Text(isSparkle ? '✨' : '⭐', style: TextStyle(fontSize: size)),
@@ -611,9 +737,9 @@ class _CieloNocheState extends State<_CieloNoche> with TickerProviderStateMixin 
             child: Opacity(
               opacity: 0.3, // Muy sutil de noche
               child: Text(
-                '☁️', 
+                '☁️',
                 // Aplicamos un tinte gris azulado para que no brillen mucho
-                style: TextStyle(fontSize: 24, color: Colors.blueGrey[200]), 
+                style: TextStyle(fontSize: 24, color: Colors.blueGrey[200]),
               ),
             ),
           ),
@@ -624,7 +750,7 @@ class _CieloNocheState extends State<_CieloNoche> with TickerProviderStateMixin 
             child: Opacity(
               opacity: 0.5,
               child: Text(
-                '☁️', 
+                '☁️',
                 style: TextStyle(fontSize: 36, color: Colors.blueGrey[100]),
               ),
             ),

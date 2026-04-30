@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+//#8ae670, #a3ff88, #708be6, #8aa2ff, #f07a94
 class AppColors {
   // ── Verdes principales ─────────────────────────────────
   static const Color verdePrincipal  = Color(0xFF8AE670);
@@ -33,4 +34,8 @@ class AppColors {
   static const Color textoPrincipal  = Color(0xFF1A2E1A);
   static const Color textoSecundario = Color(0xFF73726C);
   static const Color borde           = Color(0xFFD3D1C7);
+
+  static const Color doradoSuave = Color(0xFFFFF4BF);
+  static const Color doradoBorde = Color(0xFFF2D66B);
+  static const Color doradoTexto = Color(0xFF6B5500);
 }

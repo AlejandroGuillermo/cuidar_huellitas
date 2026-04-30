@@ -8,11 +8,9 @@ class DisasterRepository {
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
 
-  DisasterRepository({
-    FirebaseFirestore? firestore,
-    FirebaseAuth? auth,
-  }) : _firestore = firestore ?? FirebaseFirestore.instance,
-       _auth = auth ?? FirebaseAuth.instance;
+  DisasterRepository({FirebaseFirestore? firestore, FirebaseAuth? auth})
+    : _firestore = firestore ?? FirebaseFirestore.instance,
+      _auth = auth ?? FirebaseAuth.instance;
 
   Future<List<PendingDisaster>> loadPending(String mascotaId) async {
     final userId = _auth.currentUser?.uid;
@@ -30,5 +28,28 @@ class DisasterRepository {
     return snap.docs
         .map((doc) => PendingDisasterModel.fromFirestore(doc.id, doc.data()))
         .toList();
+  }
+
+  Stream<List<PendingDisaster>> watchPending(String mascotaId) {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null || mascotaId.isEmpty) {
+      return Stream.value(const []);
+    }
+
+    return _firestore
+        .collection('usuarios')
+        .doc(userId)
+        .collection('mascotas')
+        .doc(mascotaId)
+        .collection('desastres_pendientes')
+        .where('recogido', isEqualTo: false)
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map(
+                (doc) => PendingDisasterModel.fromFirestore(doc.id, doc.data()),
+              )
+              .toList(),
+        );
   }
 }

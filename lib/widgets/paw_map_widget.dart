@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
-import '../core/app_router.dart';
-import '../core/app_colors.dart';
 
-// ── FUNCIÓN GLOBAL PARA ABRIR EL MAPA DESDE CUALQUIER PANTALLA ──
+import '../core/app_colors.dart';
+import '../core/app_router.dart';
+
 void mostrarMapaHuella(BuildContext context) {
   showDialog(
     context: context,
@@ -21,7 +20,6 @@ void mostrarMapaHuella(BuildContext context) {
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
-                  // Cambia esto si tu color azul se llama diferente en AppColors
                   color: Color(0xFF708BE6),
                 ),
               ),
@@ -29,7 +27,7 @@ void mostrarMapaHuella(BuildContext context) {
               const SizedBox(
                 width: 300,
                 height: 300,
-                child: PawMapWidget(), // Llamamos al widget de abajo
+                child: PawMapWidget(),
               ),
             ],
           ),
@@ -39,9 +37,26 @@ void mostrarMapaHuella(BuildContext context) {
   );
 }
 
-// ── WIDGET DEL MAPA DE HUELLAS ──
 class PawMapWidget extends StatelessWidget {
   const PawMapWidget({super.key});
+
+  void _openAction(BuildContext context, String actionId) {
+    Navigator.of(context, rootNavigator: true).pop();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (actionId == 'alimentar') {
+        appRouter.go(AppRoutes.alimentar);
+      } else if (actionId == 'jugar') {
+        appRouter.go(AppRoutes.jugar);
+      } else if (actionId == 'curar') {
+        appRouter.go(AppRoutes.curar);
+      } else if (actionId == 'banar') {
+        appRouter.go(AppRoutes.banar);
+      } else if (actionId == 'dormir') {
+        appRouter.go(AppRoutes.dormir);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -86,7 +101,6 @@ class PawMapWidget extends StatelessWidget {
             width: 120,
             height: 100,
             decoration: BoxDecoration(
-              // Usé tu AppColors aquí
               color: AppColors.verdeClaro.withValues(alpha: 0.3),
               borderRadius: BorderRadius.circular(50),
             ),
@@ -97,17 +111,16 @@ class PawMapWidget extends StatelessWidget {
             alignment: action['align'] as Alignment,
             child: GestureDetector(
               onTap: () {
-                Navigator.pop(context); // Cierra el modal
+                final actionId = action['id'] as String;
 
-                if (action['id'] == 'alimentar') {
-                  context.push(AppRoutes.alimentar);
-                } else if (action['id'] == 'jugar') {
-                  context.push(AppRoutes.jugar);
-                } else if (action['id'] == 'banar') {
-                  context.push(AppRoutes.banar);
-                } else if (action['id'] == 'dormir') {
-                  context.push(AppRoutes.dormir);
+                if (actionId == 'alimentar' ||
+                    actionId == 'jugar' ||
+                    actionId == 'curar' ||
+                    actionId == 'banar' ||
+                    actionId == 'dormir') {
+                  _openAction(context, actionId);
                 } else {
+                  Navigator.of(context, rootNavigator: true).pop();
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Próximamente: ${action['label']} 🐾'),

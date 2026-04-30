@@ -6,10 +6,13 @@ import '../screens/register_screen.dart';
 import '../screens/adopcion_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/alimentar_screen.dart';
+import '../screens/curar_screen.dart';
 import '../screens/jugar_screen.dart';
 import '../screens/dormir_screen.dart';
 import '../screens/banar_screen.dart';
 import '../screens/logros_screen.dart';
+import '../screens/retos_screen.dart' show RetosScreen;
+import '../screens/tienda_screen.dart';
 
 // ── Nombres de rutas como constantes ──────────────────────
 // Siempre usa estas constantes en lugar de strings sueltos.
@@ -25,6 +28,7 @@ class AppRoutes {
   static const ar = '/home/mascota/ar';
 
   static const alimentar = '/home/alimentar';
+  static const curar = '/home/curar';
   static const jugar = '/home/jugar';
   static const dormir = '/home/dormir';
   static const banar = '/home/banar';
@@ -117,6 +121,30 @@ final appRouter = GoRouter(
               },
             ),
             GoRoute(
+              path: 'curar',
+              name: 'curar',
+              pageBuilder: (context, state) {
+                return CustomTransitionPage(
+                  key: state.pageKey,
+                  child: const CurarScreen(),
+                  transitionsBuilder:
+                      (context, animation, secondaryAnimation, child) {
+                        const begin = Offset(1.0, 0.0);
+                        const end = Offset.zero;
+                        const curve = Curves.easeInOut;
+                        final tween = Tween(
+                          begin: begin,
+                          end: end,
+                        ).chain(CurveTween(curve: curve));
+                        return SlideTransition(
+                          position: animation.drive(tween),
+                          child: child,
+                        );
+                      },
+                );
+              },
+            ),
+            GoRoute(
               path: 'dormir',
               name: 'dormir',
               pageBuilder: (context, state) {
@@ -170,12 +198,12 @@ final appRouter = GoRouter(
         GoRoute(
           path: AppRoutes.tienda,
           name: 'tienda',
-          builder: (context, state) => const Placeholder(), // TiendaScreen
+          builder: (context, state) => const TiendaScreen(),
         ),
         GoRoute(
           path: AppRoutes.retos,
           name: 'retos',
-          builder: (context, state) => const Placeholder(), // RetosScreen
+          builder: (context, state) => const RetosScreen(),
         ),
         GoRoute(
           path: AppRoutes.jugar,

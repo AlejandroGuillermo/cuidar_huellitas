@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -7,15 +8,33 @@ import 'pet_state.dart';
 import '../Models/mascota_model.dart';
 import '../core/personality_config.dart';
 import '../core/disaster_system.dart';
+import '../core/food_catalog.dart';
 
 class PetCubit extends Cubit<PetState> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final Random _random = Random();
+  Timer? _deterioroTimer;
+  Timer? _platoComidaTimer;
+
+  static const Duration _deterioroIntervalo = Duration(minutes: 30);
+  static const Duration _platoPasoIntervalo = Duration(seconds: 30);
+  static const int _maxTicksPlatoAusencia = 48; // 24h maximo
+  static const int _maxTicksAusencia = 48; // 24 horas maximo
+  static const int _umbralHambreSalud = 20;
+  static const int _umbralLimpiezaSalud = 20;
+  static const int _umbralAfectoSalud = 10;
+  static const int _umbralEnergiaBaja = 12;
+  static const int _ticksEnergiaBajaParaDano = 2;
+  static const int _defaultMissionRewardCoins = 5;
 
   DisasterCubit? disasterCubit;
 
   PetCubit() : super(PetState(isLoading: true));
+
+  int _umbralBuffPorDescanso(String tipoDescanso) {
+    return tipoDescanso == 'siesta' ? 10 : 20;
+  }
 
   // ══════════════════════════════════════════════════════
   // CARGA Y AUSENCIA
@@ -26,6 +45,8 @@ class PetCubit extends Cubit<PetState> {
       emit(state.copyWith(clearMascota: true, isLoading: true));
       final userId = _auth.currentUser?.uid;
       if (userId == null) {
+        _detenerDeterioroOnline();
+        _detenerComidaPlatoOnline();
         emit(state.copyWith(clearMascota: true, isLoading: false));
         return;
       }
@@ -41,6 +62,7 @@ class PetCubit extends Cubit<PetState> {
       if (snap.docs.isNotEmpty) {
         final mascota = MascotaModel.fromFirestore(snap.docs.first);
         emit(state.copyWith(mascota: mascota, isLoading: false));
+        _iniciarDeterioroOnline();
 
         // Si estaba descansando, calcular recuperación offline primero
         if (mascota.estaDescansando) {
@@ -48,11 +70,18 @@ class PetCubit extends Cubit<PetState> {
         } else {
           await calcularDeterieroAusencia();
         }
+        final comioOffline = await sincronizarPlatoOffline();
+        await _evaluarMisionRecogerComidaOffline(comioOffline);
+        _iniciarComidaPlatoOnlineSiAplica();
       } else {
+        _detenerDeterioroOnline();
+        _detenerComidaPlatoOnline();
         emit(state.copyWith(clearMascota: true, isLoading: false));
       }
     } catch (e) {
       debugPrint('Error cargarMascota: $e');
+      _detenerDeterioroOnline();
+      _detenerComidaPlatoOnline();
       emit(state.copyWith(clearMascota: true, isLoading: false));
     }
   }
@@ -61,27 +90,32 @@ class PetCubit extends Cubit<PetState> {
   Future<void> calcularRecuperacionOffline() async {
     final mascota = state.mascota;
     if (mascota == null || !mascota.estaDescansando) return;
-    final inicio = mascota.inicioDescanso;
-    if (inicio == null) return;
+    final esNoche = mascota.tipoDescanso == 'noche';
+    final referenciaInicio =
+        mascota.inicioDescanso ?? (esNoche ? null : mascota.ultimaInteraccion);
+    if (referenciaInicio == null) return;
 
     final minutosTranscurridos = DateTime.now()
-        .difference(inicio)
+        .difference(referenciaInicio)
         .inMinutes
-        .clamp(0, 600);
-    final esNoche = mascota.tipoDescanso == 'noche';
+        .clamp(0, 600)
+        .toInt();
 
-    // Tasa de recuperación: noche=2/min, siesta=0.8/min
-    final tasa = esNoche ? 2.0 : 0.8;
-    final energiaGanada = (minutosTranscurridos * tasa)
-        .clamp(0, 100 - mascota.energiaAlAcostar)
-        .round();
+    // Noche: recuperación fuerte. Siesta: 3 energía cada 15 min (=1 cada 5 min).
+    final energiaGanada = esNoche
+        ? (minutosTranscurridos * 2.0)
+              .clamp(0, 100 - mascota.energiaAlAcostar)
+              .round()
+        : (minutosTranscurridos ~/ 5)
+              .clamp(0, 100 - mascota.energiaAlAcostar)
+              .toInt();
     final nuevaEnergia = (mascota.energiaAlAcostar + energiaGanada).clamp(
       0,
       100,
     );
 
-    // Buff si ganó +20 o más
-    final buff = energiaGanada >= 20;
+    // Buff por recuperación: siesta con umbral más accesible.
+    final buff = energiaGanada >= _umbralBuffPorDescanso(mascota.tipoDescanso);
     final buffExpira = buff
         ? DateTime.now().add(const Duration(days: 1))
         : mascota.buffExpira;
@@ -107,6 +141,9 @@ class PetCubit extends Cubit<PetState> {
       nivelHambre: hambre,
       nivelLimpieza: limpieza,
       nivelAfecto: afecto,
+      ticksEnergiaBaja: nuevaEnergia < _umbralEnergiaBaja
+          ? mascota.ticksEnergiaBaja
+          : 0,
       buffEnergia: buff || mascota.buffEnergia,
       buffExpira: buffExpira,
       estadoDescanso: estadoFinal,
@@ -135,11 +172,12 @@ class PetCubit extends Cubit<PetState> {
     if (mascota == null) return;
 
     final ticks =
-        DateTime.now().difference(mascota.ultimaInteraccion).inMinutes ~/ 3;
+        DateTime.now().difference(mascota.ultimaInteraccion).inMinutes ~/
+        _deterioroIntervalo.inMinutes;
 
     final config = PersonalityRegistry.get(mascota.rasgo);
     final ausenciaFactor = config?.deterioro.ausenciaFactor ?? 1.0;
-    final ticksAplicados = ticks.clamp(0, 120);
+    final ticksAplicados = ticks.clamp(0, _maxTicksAusencia);
     if (ticksAplicados <= 0 || mascota.estaDescansando) return;
 
     var despues = mascota;
@@ -171,14 +209,18 @@ class PetCubit extends Cubit<PetState> {
     final mascota = state.mascota;
     if (mascota == null) return 'ok';
     final rasgo = mascota.rasgo;
+    final esJuguetonOTravieso = rasgo == 'Juguetón' || rasgo == 'Travieso';
 
-    // Verificar si es rebelde
-    final esRebelde =
-        mascota.nivelEnergia < 30 &&
-        (rasgo == 'Juguetón' || rasgo == 'Travieso');
+    if (!esNoche && mascota.cortinasAbiertas) {
+      return 'siesta_requiere_cortina';
+    }
+
+    // Rebeldía general para Juguetón y Travieso.
+    final esRebelde = esJuguetonOTravieso;
 
     if (esRebelde) {
-      final obedece = _random.nextDouble() > 0.5;
+      // 45% de probabilidad de no obedecer cuando entra en modo rebelde.
+      final obedece = _random.nextDouble() > 0.45;
       if (!obedece) {
         // No obedece
         emit(state.copyWith(estadoMision: 'perro_rebelde'));
@@ -211,14 +253,16 @@ class PetCubit extends Cubit<PetState> {
 
     final tapsBase = 3 + _random.nextInt(4); // 3–6
     final esCarinoso = mascota.rasgo == 'Cariñoso';
-    final cariciasBase = esNoche
+    final requiereCariciasParaSiesta = !esNoche && esCarinoso;
+    final requiereCaricias = esNoche || requiereCariciasParaSiesta;
+    final cariciasBase = requiereCaricias
         ? (esCarinoso ? 4 + _random.nextInt(5) : 3 + _random.nextInt(5))
         : 0;
 
     final despues = mascota.copyWith(
-      estadoDescanso: esNoche ? 'acostado' : 'siesta',
+      estadoDescanso: requiereCaricias ? 'acostado' : 'siesta',
       tipoDescanso: esNoche ? 'noche' : 'siesta',
-      inicioDescanso: null, // se pone al dormirse, no al acostarse
+      inicioDescanso: requiereCaricias ? null : DateTime.now(),
       energiaAlAcostar: mascota.nivelEnergia,
       tapsParaDespetarBase: tapsBase,
       ultimaInteraccion: DateTime.now(),
@@ -273,9 +317,10 @@ class PetCubit extends Cubit<PetState> {
   Future<void> _dormirse() async {
     final mascota = state.mascota;
     if (mascota == null) return;
+    final estadoFinal = mascota.tipoDescanso == 'siesta' ? 'siesta' : 'dormido';
 
     final despues = mascota.copyWith(
-      estadoDescanso: 'dormido',
+      estadoDescanso: estadoFinal,
       inicioDescanso: DateTime.now(),
     );
 
@@ -296,9 +341,22 @@ class PetCubit extends Cubit<PetState> {
         esSiesta || (esNoche && mascota.estadoDescanso == 'dormido');
     if (!debeRecuperar) return;
 
-    // Tasa: noche 2/tick (30s), siesta 1/tick
-    final ganancia = esNoche ? 2 : 1;
-    final nuevaEnergia = (mascota.nivelEnergia + ganancia).clamp(0, 100);
+    int nuevaEnergia;
+    if (esNoche) {
+      // Noche: recuperación fuerte y continua.
+      nuevaEnergia = (mascota.nivelEnergia + 2).clamp(0, 100);
+    } else {
+      // Siesta: 3 cada 15 min (1 cada 5 min), con cálculo por tiempo transcurrido.
+      final inicio = mascota.inicioDescanso ?? mascota.ultimaInteraccion;
+      final bloquesRecuperados =
+          DateTime.now().difference(inicio).inMinutes ~/ 5;
+      final energiaObjetivo = (mascota.energiaAlAcostar + bloquesRecuperados)
+          .clamp(0, 100)
+          .toInt();
+      nuevaEnergia = max(mascota.nivelEnergia, energiaObjetivo);
+    }
+
+    if (nuevaEnergia == mascota.nivelEnergia) return;
 
     final bool lleg100 = nuevaEnergia >= 100;
     int hambre = mascota.nivelHambre;
@@ -314,13 +372,19 @@ class PetCubit extends Cubit<PetState> {
       }
     }
 
-    final buff = lleg100 || (nuevaEnergia - mascota.energiaAlAcostar >= 20);
+    final buff =
+        lleg100 ||
+        (nuevaEnergia - mascota.energiaAlAcostar >=
+            _umbralBuffPorDescanso(mascota.tipoDescanso));
 
     final despues = mascota.copyWith(
       nivelEnergia: nuevaEnergia,
       nivelHambre: hambre,
       nivelLimpieza: limpieza,
       nivelAfecto: afecto,
+      ticksEnergiaBaja: nuevaEnergia < _umbralEnergiaBaja
+          ? mascota.ticksEnergiaBaja
+          : 0,
       estadoDescanso: lleg100 ? 'despierto' : mascota.estadoDescanso,
       clearInicioDescanso: lleg100,
       buffEnergia: buff || mascota.buffEnergia,
@@ -351,13 +415,21 @@ class PetCubit extends Cubit<PetState> {
 
   // ── Tap para despertar ─────────────────────────────────
   // Retorna true cuando se completan los taps necesarios
-  Future<bool> registrarTapDespertar() async {
+  Future<bool> registrarTapDespertar({
+    bool despertarInstantaneo = false,
+  }) async {
     final mascota = state.mascota;
     if (mascota == null) return false;
 
-    // Noche: solo despertable si cortinas abiertas
-    if (mascota.tipoDescanso == 'noche' && mascota.cortinasAbiertas == false) {
+    // Si está descansando (noche/siesta), solo despertable con cortinas abiertas.
+    if ((mascota.tipoDescanso == 'noche' || mascota.tipoDescanso == 'siesta') &&
+        mascota.cortinasAbiertas == false) {
       return false;
+    }
+
+    if (despertarInstantaneo) {
+      await _despertar();
+      return true;
     }
 
     final nuevosTaps = state.tapsDespertar + 1;
@@ -379,7 +451,7 @@ class PetCubit extends Cubit<PetState> {
         ? DateTime.now().difference(inicio).inMinutes
         : 0;
     final energiaGanada = mascota.nivelEnergia - mascota.energiaAlAcostar;
-    final buff = energiaGanada >= 20;
+    final buff = energiaGanada >= _umbralBuffPorDescanso(mascota.tipoDescanso);
 
     final despues = mascota.copyWith(
       estadoDescanso: 'despierto',
@@ -463,13 +535,12 @@ class PetCubit extends Cubit<PetState> {
   }
 
   // ── Alternar cortinas ──────────────────────────────────
-  Future<void> toggleCortinas() async {
+  Future<void> setCortinasAbiertas(bool abiertas) async {
     final mascota = state.mascota;
     if (mascota == null) return;
+    if (mascota.cortinasAbiertas == abiertas) return;
 
-    final despues = mascota.copyWith(
-      cortinasAbiertas: !mascota.cortinasAbiertas,
-    );
+    final despues = mascota.copyWith(cortinasAbiertas: abiertas);
     emit(state.copyWith(mascota: despues));
 
     // Solo guardar el campo de cortinas (sin registrar en progreso)
@@ -483,13 +554,425 @@ class PetCubit extends Cubit<PetState> {
           .doc(mascota.idMascota)
           .update({'cortinas_abiertas': despues.cortinasAbiertas});
     } catch (e) {
-      debugPrint('Error toggle cortinas: $e');
+      debugPrint('Error set cortinas: $e');
     }
   }
 
+  Future<void> toggleCortinas() async {
+    final mascota = state.mascota;
+    if (mascota == null) return;
+    await setCortinasAbiertas(!mascota.cortinasAbiertas);
+  }
+
+  Future<void> promoverSiestaANocheSiAplica({
+    required bool esNocheActual,
+  }) async {
+    final mascota = state.mascota;
+    if (mascota == null) return;
+    if (!esNocheActual) return;
+    if (mascota.tipoDescanso != 'siesta') return;
+
+    final nuevoEstado = mascota.estadoDescanso == 'siesta'
+        ? 'dormido'
+        : mascota.estadoDescanso;
+    final nuevaInicioDescanso = mascota.inicioDescanso ?? DateTime.now();
+
+    final despues = mascota.copyWith(
+      tipoDescanso: 'noche',
+      estadoDescanso: nuevoEstado,
+      inicioDescanso: nuevaInicioDescanso,
+    );
+
+    emit(state.copyWith(mascota: despues));
+    await _guardarDescansoEnFirestore(antes: mascota, despues: despues);
+  }
+
   // ══════════════════════════════════════════════════════
+  Future<void> forzarDescansoOffline({required bool siesta}) async {
+    final mascota = state.mascota;
+    if (mascota == null || mascota.estaDescansando) return;
+
+    final tapsBase = 3 + _random.nextInt(4); // 3-6
+    final despues = mascota.copyWith(
+      estadoDescanso: siesta ? 'siesta' : 'dormido',
+      tipoDescanso: siesta ? 'siesta' : 'noche',
+      inicioDescanso: DateTime.now(),
+      energiaAlAcostar: mascota.nivelEnergia,
+      tapsParaDespetarBase: tapsBase,
+      ultimaInteraccion: DateTime.now(),
+    );
+
+    emit(
+      state.copyWith(
+        mascota: despues,
+        estadoMision: 'ninguna',
+        cariciasTotal: 0,
+        cariciasHechas: 0,
+        tapsDespertar: 0,
+      ),
+    );
+    await _guardarDescansoEnFirestore(antes: mascota, despues: despues);
+  }
+
+  Future<bool> equiparItemCabeza(String itemId) async {
+    final mascota = state.mascota;
+    final userId = _auth.currentUser?.uid;
+    if (mascota == null || userId == null || itemId.isEmpty) return false;
+
+    try {
+      final userDoc = await _firestore.collection('usuarios').doc(userId).get();
+      final data = userDoc.data() ?? <String, dynamic>{};
+      final rawInventory =
+          (data['inventario_cosmeticos'] as Map<String, dynamic>?) ?? {};
+      final owned =
+          rawInventory[itemId] == true ||
+          ((rawInventory[itemId] is num) && (rawInventory[itemId] as num) > 0);
+
+      if (!owned) return false;
+
+      final despues = mascota.copyWith(itemCabezaId: itemId);
+      emit(state.copyWith(mascota: despues));
+
+      await _firestore
+          .collection('usuarios')
+          .doc(userId)
+          .collection('mascotas')
+          .doc(mascota.idMascota)
+          .update({'item_cabeza_id': itemId});
+
+      return true;
+    } catch (e) {
+      debugPrint('Error equipar item cabeza: $e');
+      return false;
+    }
+  }
+
+  Future<void> quitarItemCabeza() async {
+    final mascota = state.mascota;
+    final userId = _auth.currentUser?.uid;
+    if (mascota == null || userId == null) return;
+
+    try {
+      final despues = mascota.copyWith(clearItemCabezaId: true);
+      emit(state.copyWith(mascota: despues));
+      await _firestore
+          .collection('usuarios')
+          .doc(userId)
+          .collection('mascotas')
+          .doc(mascota.idMascota)
+          .update({'item_cabeza_id': ''});
+    } catch (e) {
+      debugPrint('Error quitar item cabeza: $e');
+    }
+  }
+
   // HELPERS INTERNOS
   // ══════════════════════════════════════════════════════
+
+  Future<void> actualizarEstadoPlato({
+    double? nivelPlato,
+    String? platoAlimentoId,
+    bool clearPlatoAlimentoId = false,
+    String? platoEmoji,
+    bool clearPlatoEmoji = false,
+    bool? platoComiendo,
+    DateTime? platoActualizado,
+  }) async {
+    final mascota = state.mascota;
+    if (mascota == null) return;
+
+    final despues = mascota.copyWith(
+      nivelPlato: nivelPlato ?? mascota.nivelPlato,
+      platoAlimentoId: platoAlimentoId,
+      clearPlatoAlimentoId: clearPlatoAlimentoId,
+      platoEmoji: platoEmoji,
+      clearPlatoEmoji: clearPlatoEmoji,
+      platoComiendo: platoComiendo ?? mascota.platoComiendo,
+      platoActualizado: platoActualizado ?? DateTime.now(),
+    );
+
+    emit(state.copyWith(mascota: despues));
+    await _guardarSoloPlatoEnFirestore(antes: mascota, despues: despues);
+
+    if (despues.platoComiendo && despues.nivelPlato > 0) {
+      _iniciarComidaPlatoOnlineSiAplica();
+    } else {
+      _detenerComidaPlatoOnline();
+    }
+  }
+
+  Future<void> iniciarComidaPlato() async {
+    final mascota = state.mascota;
+    if (mascota == null || mascota.nivelPlato <= 0) return;
+    await actualizarEstadoPlato(
+      platoComiendo: true,
+      platoActualizado: DateTime.now(),
+    );
+  }
+
+  Future<void> detenerComidaPlato() async {
+    final mascota = state.mascota;
+    if (mascota == null) return;
+    await actualizarEstadoPlato(
+      platoComiendo: false,
+      platoActualizado: DateTime.now(),
+    );
+  }
+
+  Future<bool> sincronizarPlatoOffline() async {
+    final antes = state.mascota;
+    if (antes == null || antes.nivelPlato <= 0) return false;
+
+    final desde = antes.platoActualizado ?? antes.ultimaInteraccion;
+    final ticks =
+        DateTime.now().difference(desde).inMinutes ~/
+        _deterioroIntervalo.inMinutes;
+    final ticksAplicados = ticks.clamp(0, _maxTicksPlatoAusencia).toInt();
+    if (ticksAplicados <= 0) return false;
+
+    var plato = antes.nivelPlato;
+    var hambre = antes.nivelHambre;
+    var afecto = antes.nivelAfecto;
+    var comioEnAusencia = false;
+    final probComer = _chanceComerPlato(antes.rasgo);
+    final puntosPaso = _puntosHambrePorPaso(antes.platoAlimentoId);
+
+    for (var i = 0; i < ticksAplicados; i++) {
+      if (plato <= 0) break;
+
+      plato = (plato - 10).clamp(0, 100);
+      if (plato <= 0) break;
+
+      if (_random.nextDouble() <= probComer) {
+        plato = (plato - 5).clamp(0, 100);
+        hambre = (hambre + puntosPaso).clamp(0, 100).toInt();
+        afecto = (afecto + 1).clamp(0, 100).toInt();
+        comioEnAusencia = true;
+      }
+    }
+
+    final despues = antes.copyWith(
+      nivelPlato: plato.toDouble(),
+      nivelHambre: hambre,
+      nivelAfecto: afecto,
+      platoActualizado: DateTime.now(),
+      platoComiendo: plato > 0 ? antes.platoComiendo : false,
+      clearPlatoAlimentoId: plato <= 0,
+      clearPlatoEmoji: plato <= 0,
+    );
+
+    emit(state.copyWith(mascota: despues));
+    await _guardarEnFirestore(
+      antes: antes,
+      despues: despues,
+      accion: 'plato_offline_sync',
+      extras: {
+        'ticks_plato_aplicados': ticksAplicados,
+        'nivel_plato_antes': antes.nivelPlato,
+        'nivel_plato_despues': despues.nivelPlato,
+      },
+    );
+    return comioEnAusencia;
+  }
+
+  void _iniciarComidaPlatoOnlineSiAplica() {
+    final mascota = state.mascota;
+    if (mascota == null || !mascota.platoComiendo || mascota.nivelPlato <= 0) {
+      _detenerComidaPlatoOnline();
+      return;
+    }
+
+    _platoComidaTimer?.cancel();
+    _platoComidaTimer = Timer.periodic(_platoPasoIntervalo, (_) async {
+      await _tickComidaPlatoOnline();
+    });
+  }
+
+  void _detenerComidaPlatoOnline() {
+    _platoComidaTimer?.cancel();
+    _platoComidaTimer = null;
+  }
+
+  Future<void> _tickComidaPlatoOnline() async {
+    final antes = state.mascota;
+    if (antes == null || !antes.platoComiendo) {
+      _detenerComidaPlatoOnline();
+      return;
+    }
+
+    if (antes.nivelPlato <= 0) {
+      final vacio = antes.copyWith(
+        nivelPlato: 0,
+        platoComiendo: false,
+        clearPlatoAlimentoId: true,
+        clearPlatoEmoji: true,
+        platoActualizado: DateTime.now(),
+      );
+      emit(state.copyWith(mascota: vacio));
+      await _guardarSoloPlatoEnFirestore(antes: antes, despues: vacio);
+      _detenerComidaPlatoOnline();
+      return;
+    }
+
+    final chanceComer = _chanceComerPlato(antes.rasgo);
+    final comio = _random.nextDouble() <= chanceComer;
+
+    final nuevoPlato = (antes.nivelPlato - 5).clamp(0, 100).toDouble();
+    final nuevaHambre = comio
+        ? (antes.nivelHambre + _puntosHambrePorPaso(antes.platoAlimentoId))
+              .clamp(0, 100)
+              .toInt()
+        : antes.nivelHambre;
+    final nuevoAfecto = comio
+        ? (antes.nivelAfecto + 1).clamp(0, 100).toInt()
+        : antes.nivelAfecto;
+    final sigueComiendo = comio && nuevoPlato > 0;
+
+    final despues = antes.copyWith(
+      nivelPlato: nuevoPlato,
+      nivelHambre: nuevaHambre,
+      nivelAfecto: nuevoAfecto,
+      platoComiendo: sigueComiendo,
+      platoActualizado: DateTime.now(),
+      clearPlatoAlimentoId: nuevoPlato <= 0,
+      clearPlatoEmoji: nuevoPlato <= 0,
+    );
+
+    emit(state.copyWith(mascota: despues));
+    await _guardarEnFirestore(
+      antes: antes,
+      despues: despues,
+      accion: 'comer_plato_online',
+      extras: {
+        'comio': comio,
+        'nivel_plato_antes': antes.nivelPlato,
+        'nivel_plato_despues': despues.nivelPlato,
+      },
+    );
+
+    if (!sigueComiendo) {
+      _detenerComidaPlatoOnline();
+    }
+  }
+
+  double _chanceComerPlato(String rasgo) {
+    return rasgo == 'Glotón' ? 0.60 : 0.55;
+  }
+
+  int _puntosHambrePorPaso(String? foodId) {
+    final food = FoodCatalog.byId(foodId);
+    if (food == null) return 5;
+    final base = (food.hungerPoints * 0.25).round();
+    return base.clamp(2, 12).toInt();
+  }
+
+  double _chanceTirarComidaPorRasgo(String rasgo) {
+    if (rasgo == 'Travieso') return 0.45;
+    if (rasgo == 'JuguetÃ³n') return 0.30;
+    return 0.0;
+  }
+
+  String? _misionRecogerComidaPorRasgo(String rasgo) {
+    if (rasgo == 'Travieso') return 'travieso_recoger_comida';
+    if (rasgo == 'JuguetÃ³n') return 'jugueton_recoger_comida';
+    return null;
+  }
+
+  int _recompensaCoinsPorMision(String misionId) {
+    switch (misionId) {
+      case 'travieso_recoger_comida':
+      case 'jugueton_recoger_comida':
+      case 'recoger_comida':
+        return _defaultMissionRewardCoins;
+      default:
+        return _defaultMissionRewardCoins;
+    }
+  }
+
+  String? _tipoPorMision(String misionId) {
+    switch (misionId) {
+      case 'travieso_recoger_comida':
+      case 'jugueton_recoger_comida':
+      case 'recoger_comida':
+        return 'recoger_comida';
+      default:
+        return null;
+    }
+  }
+
+  Map<String, int> _distribucionComidaTravieso(int totalPiezas) {
+    final pantallas = <String>[
+      disasterScreenDormir,
+      disasterScreenHome,
+      disasterScreenAlimentar,
+    ];
+    final resultado = <String, int>{
+      disasterScreenDormir: 0,
+      disasterScreenHome: 0,
+      disasterScreenAlimentar: 0,
+    };
+
+    for (var i = 0; i < totalPiezas; i++) {
+      final pantalla = pantallas[_random.nextInt(pantallas.length)];
+      resultado[pantalla] = (resultado[pantalla] ?? 0) + 1;
+    }
+    return resultado;
+  }
+
+  Future<void> _evaluarMisionRecogerComidaOffline(bool comioOffline) async {
+    final mascota = state.mascota;
+    if (mascota == null || !comioOffline) return;
+
+    final chanceTirar = _chanceTirarComidaPorRasgo(mascota.rasgo);
+    if (chanceTirar <= 0 || _random.nextDouble() > chanceTirar) return;
+
+    final misionId = _misionRecogerComidaPorRasgo(mascota.rasgo);
+    if (misionId == null) return;
+
+    await _crearMisionActiva(misionId, mascota.idMascota);
+
+    const piezas = 5;
+    final emojiComida = mascota.platoEmoji.isNotEmpty
+        ? mascota.platoEmoji
+        : 'ðŸ–';
+
+    if (mascota.rasgo == 'Travieso') {
+      await disasterCubit?.generarDesastreDistribuido(
+        mascotaId: mascota.idMascota,
+        tipo: DisasterType.comida,
+        emoji: emojiComida,
+        cantidadPorPantalla: _distribucionComidaTravieso(piezas),
+      );
+      return;
+    }
+
+    await disasterCubit?.generarDesastre(
+      mascotaId: mascota.idMascota,
+      tipo: DisasterType.comida,
+      emoji: emojiComida,
+      cantidad: piezas,
+      pantalla: disasterScreenAlimentar,
+    );
+  }
+
+  void _iniciarDeterioroOnline() {
+    _deterioroTimer?.cancel();
+    _deterioroTimer = Timer.periodic(_deterioroIntervalo, (_) async {
+      await aplicarDeterioro();
+    });
+  }
+
+  void _detenerDeterioroOnline() {
+    _deterioroTimer?.cancel();
+    _deterioroTimer = null;
+  }
+
+  @override
+  Future<void> close() {
+    _detenerDeterioroOnline();
+    _detenerComidaPlatoOnline();
+    return super.close();
+  }
 
   // Guarda solo los campos de descanso en Firestore
   Future<void> _guardarDescansoEnFirestore({
@@ -509,6 +992,7 @@ class PetCubit extends Cubit<PetState> {
             'nivel_hambre': despues.nivelHambre,
             'nivel_limpieza': despues.nivelLimpieza,
             'nivel_afecto': despues.nivelAfecto,
+            'ticks_energia_baja': despues.ticksEnergiaBaja,
             'estado_descanso': despues.estadoDescanso,
             'inicio_descanso': despues.inicioDescanso != null
                 ? Timestamp.fromDate(despues.inicioDescanso!)
@@ -550,6 +1034,14 @@ class PetCubit extends Cubit<PetState> {
         'nivel_hambre': despues.nivelHambre,
         'nivel_limpieza': despues.nivelLimpieza,
         'nivel_afecto': despues.nivelAfecto,
+        'nivel_plato': despues.nivelPlato,
+        'plato_alimento_id': despues.platoAlimentoId,
+        'plato_emoji': despues.platoEmoji,
+        'plato_actualizado': despues.platoActualizado != null
+            ? Timestamp.fromDate(despues.platoActualizado!)
+            : null,
+        'plato_comiendo': despues.platoComiendo,
+        'ticks_energia_baja': despues.ticksEnergiaBaja,
         'ultima_interaccion': Timestamp.now(),
         'deterioro_acelerado': despues.deterioroAcelerado,
         'anomalia_detectada': despues.anomaliaDetectada,
@@ -571,7 +1063,10 @@ class PetCubit extends Cubit<PetState> {
     }
   }
 
-  Future<void> _crearMisionActiva(String misionId, String mascotaId) async {
+  Future<void> _guardarSoloPlatoEnFirestore({
+    required MascotaModel antes,
+    required MascotaModel despues,
+  }) async {
     final userId = _auth.currentUser?.uid;
     if (userId == null) return;
     try {
@@ -579,16 +1074,50 @@ class PetCubit extends Cubit<PetState> {
           .collection('usuarios')
           .doc(userId)
           .collection('mascotas')
+          .doc(antes.idMascota)
+          .update({
+            'nivel_plato': despues.nivelPlato,
+            'plato_alimento_id': despues.platoAlimentoId,
+            'plato_emoji': despues.platoEmoji,
+            'plato_actualizado': despues.platoActualizado != null
+                ? Timestamp.fromDate(despues.platoActualizado!)
+                : null,
+            'plato_comiendo': despues.platoComiendo,
+            'ultima_interaccion': Timestamp.now(),
+          });
+    } catch (e) {
+      debugPrint('Error guardar plato: $e');
+    }
+  }
+
+  Future<void> _crearMisionActiva(String misionId, String mascotaId) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+    try {
+      final rewardCoins = _recompensaCoinsPorMision(misionId);
+      final tipo = _tipoPorMision(misionId);
+      final data = <String, dynamic>{
+        'id_mision': misionId,
+        'estado': 'pendiente',
+        'fecha_asignada': Timestamp.now(),
+        'fecha_completada': null,
+        'streak': 0,
+      };
+      if (tipo != null) {
+        data['tipo'] = tipo;
+      }
+      if (rewardCoins > 0) {
+        data['reward_coins'] = rewardCoins;
+      }
+
+      await _firestore
+          .collection('usuarios')
+          .doc(userId)
+          .collection('mascotas')
           .doc(mascotaId)
           .collection('misiones_activas')
           .doc(misionId)
-          .set({
-            'id_mision': misionId,
-            'estado': 'pendiente',
-            'fecha_asignada': Timestamp.now(),
-            'fecha_completada': null,
-            'streak': 0,
-          }, SetOptions(merge: true));
+          .set(data, SetOptions(merge: true));
     } catch (e) {
       debugPrint('Error mision: $e');
     }
@@ -623,12 +1152,19 @@ class PetCubit extends Cubit<PetState> {
     }
   }
 
-  int _calcularSaludSecundaria(MascotaModel m, DecayModifiers dec) {
-    int dano = 0;
-    if (m.nivelHambre < dec.umbralHambre) dano++;
-    if (m.nivelLimpieza < dec.umbralLimpieza) dano++;
-    if (m.nivelEnergia == 0) dano++;
-    return dano;
+  int _calcularDanoSaludCondicional({
+    required int nivelHambre,
+    required int nivelLimpieza,
+    required int nivelAfecto,
+    required int ticksEnergiaBaja,
+  }) {
+    final condicionActiva =
+        nivelHambre < _umbralHambreSalud ||
+        nivelLimpieza < _umbralLimpiezaSalud ||
+        nivelAfecto < _umbralAfectoSalud ||
+        ticksEnergiaBaja >= _ticksEnergiaBajaParaDano;
+
+    return condicionActiva ? 2 : 0;
   }
 
   // ══════════════════════════════════════════════════════
@@ -756,6 +1292,28 @@ class PetCubit extends Cubit<PetState> {
     await _verificarReacciones(despues);
   }
 
+  Future<void> aumentarLimpieza(
+    int puntos, {
+    String accion = 'aumentar_limpieza',
+  }) async {
+    final antes = state.mascota;
+    if (antes == null || puntos == 0) return;
+
+    final despues = antes.copyWith(
+      nivelLimpieza: (antes.nivelLimpieza + puntos).clamp(0, 100),
+      ultimaInteraccion: DateTime.now(),
+    );
+
+    emit(state.copyWith(mascota: despues));
+    await _guardarEnFirestore(
+      antes: antes,
+      despues: despues,
+      accion: accion,
+      extras: {'puntos_limpieza': puntos},
+    );
+    await _verificarReacciones(despues);
+  }
+
   Future<void> curar() async {
     final antes = state.mascota;
     if (antes == null) return;
@@ -772,6 +1330,11 @@ class PetCubit extends Cubit<PetState> {
         0,
         100,
       ),
+      ticksEnergiaBaja:
+          (antes.nivelEnergia + BaseActionValues.curarEnergia) >=
+              _umbralEnergiaBaja
+          ? 0
+          : antes.ticksEnergiaBaja,
       nivelAfecto:
           (antes.nivelAfecto +
                   (BaseActionValues.curarAfecto * (mod?.curarAfecto ?? 1.0)))
@@ -803,6 +1366,14 @@ class PetCubit extends Cubit<PetState> {
                       (mod?.pasearEnergia ?? 1.0)))
               .round()
               .clamp(0, 100),
+      ticksEnergiaBaja:
+          ((antes.nivelEnergia +
+                      (BaseActionValues.pasearEnergia *
+                          (mod?.pasearEnergia ?? 1.0)))
+                  .round()) >=
+              _umbralEnergiaBaja
+          ? 0
+          : antes.ticksEnergiaBaja,
       nivelHambre:
           (antes.nivelHambre +
                   (BaseActionValues.pasearHambre *
@@ -848,51 +1419,54 @@ class PetCubit extends Cubit<PetState> {
         (mascota.anomaliaDetectada ? (dec?.anomaliaFactor ?? 5.0) : 1.0) *
         factorExtra;
 
-    // Buff activo: energía cae a la mitad
+    // Buff activo: energia cae a la mitad
     final factorEnergia = mascota.buffActivo ? 0.5 : 1.0;
-    final saludExtra = _calcularSaludSecundaria(
-      mascota,
-      dec ?? const DecayModifiers(),
+    final energiaNueva =
+        (mascota.nivelEnergia -
+                (BaseActionValues.deterioroEnergia *
+                    (dec?.energia ?? 1.0) *
+                    factor *
+                    factorEnergia))
+            .round()
+            .clamp(0, 100);
+    final hambreNueva =
+        (mascota.nivelHambre -
+                (BaseActionValues.deterioroHambre *
+                    (dec?.hambre ?? 1.0) *
+                    factor))
+            .round()
+            .clamp(0, 100);
+    final limpiezaNueva =
+        (mascota.nivelLimpieza -
+                (BaseActionValues.deterioroLimpieza *
+                    (dec?.limpieza ?? 1.0) *
+                    factor))
+            .round()
+            .clamp(0, 100);
+    final afectoNuevo =
+        (mascota.nivelAfecto -
+                (BaseActionValues.deterioroAfecto *
+                    (dec?.afecto ?? 1.0) *
+                    factor))
+            .round()
+            .clamp(0, 100);
+    final ticksEnergiaBajaNuevo = energiaNueva < _umbralEnergiaBaja
+        ? (mascota.ticksEnergiaBaja + 1).clamp(0, 999)
+        : 0;
+    final danoSalud = _calcularDanoSaludCondicional(
+      nivelHambre: hambreNueva,
+      nivelLimpieza: limpiezaNueva,
+      nivelAfecto: afectoNuevo,
+      ticksEnergiaBaja: ticksEnergiaBajaNuevo,
     );
 
     return mascota.copyWith(
-      nivelSalud:
-          (mascota.nivelSalud -
-                  (BaseActionValues.deterioroSalud *
-                      (dec?.salud ?? 1.0) *
-                      factor) -
-                  saludExtra)
-              .round()
-              .clamp(0, 100),
-      nivelEnergia:
-          (mascota.nivelEnergia -
-                  (BaseActionValues.deterioroEnergia *
-                      (dec?.energia ?? 1.0) *
-                      factor *
-                      factorEnergia))
-              .round()
-              .clamp(0, 100),
-      nivelHambre:
-          (mascota.nivelHambre -
-                  (BaseActionValues.deterioroHambre *
-                      (dec?.hambre ?? 1.0) *
-                      factor))
-              .round()
-              .clamp(0, 100),
-      nivelLimpieza:
-          (mascota.nivelLimpieza -
-                  (BaseActionValues.deterioroLimpieza *
-                      (dec?.limpieza ?? 1.0) *
-                      factor))
-              .round()
-              .clamp(0, 100),
-      nivelAfecto:
-          (mascota.nivelAfecto -
-                  (BaseActionValues.deterioroAfecto *
-                      (dec?.afecto ?? 1.0) *
-                      factor))
-              .round()
-              .clamp(0, 100),
+      nivelSalud: (mascota.nivelSalud - danoSalud).clamp(0, 100),
+      nivelEnergia: energiaNueva,
+      nivelHambre: hambreNueva,
+      nivelLimpieza: limpiezaNueva,
+      nivelAfecto: afectoNuevo,
+      ticksEnergiaBaja: ticksEnergiaBajaNuevo,
       ultimaInteraccion: DateTime.now(),
     );
   }

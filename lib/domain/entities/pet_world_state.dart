@@ -7,6 +7,8 @@ class PetWorldState {
   final PetActivity activity;
   final String? currentFoodId;
   final String? currentToyId;
+  final bool isLocationLocked;
+  final bool isNapTime;
   final DateTime? simulatedAt;
 
   const PetWorldState({
@@ -15,6 +17,8 @@ class PetWorldState {
     this.activity = PetActivity.idle,
     this.currentFoodId,
     this.currentToyId,
+    this.isLocationLocked = false,
+    this.isNapTime = false,
     this.simulatedAt,
   });
 
@@ -26,6 +30,8 @@ class PetWorldState {
     bool clearFood = false,
     String? currentToyId,
     bool clearToy = false,
+    bool? isLocationLocked,
+    bool? isNapTime,
     DateTime? simulatedAt,
   }) {
     return PetWorldState(
@@ -34,6 +40,8 @@ class PetWorldState {
       activity: activity ?? this.activity,
       currentFoodId: clearFood ? null : (currentFoodId ?? this.currentFoodId),
       currentToyId: clearToy ? null : (currentToyId ?? this.currentToyId),
+      isLocationLocked: isLocationLocked ?? this.isLocationLocked,
+      isNapTime: isNapTime ?? this.isNapTime,
       simulatedAt: simulatedAt ?? this.simulatedAt,
     );
   }

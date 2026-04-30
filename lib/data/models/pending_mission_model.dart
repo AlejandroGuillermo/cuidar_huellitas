@@ -3,9 +3,12 @@ import '../../domain/enums/mission_kind.dart';
 import '../../domain/enums/pet_location.dart';
 
 class PendingMissionModel {
+  static const int _defaultRewardCoins = 5;
+
   static PendingMission fromFirestore(String id, Map<String, dynamic> data) {
     final rawType =
         (data['tipo'] as String?) ?? (data['id_mision'] as String?) ?? '';
+    final rewardCoins = (data['reward_coins'] as num?)?.toInt() ?? 0;
 
     return PendingMission(
       id: id,
@@ -13,6 +16,7 @@ class PendingMissionModel {
       location: _locationFromKind(_kindFromString(rawType)),
       status: (data['estado'] as String?) ?? 'pendiente',
       relatedItemId: data['emoji'] as String?,
+      rewardCoins: rewardCoins > 0 ? rewardCoins : _defaultRewardCoins,
     );
   }
 

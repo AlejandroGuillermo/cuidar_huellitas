@@ -1,3 +1,4 @@
+﻿import 'dart:async';
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -5,33 +6,19 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+
+import '../application/cubits/pet_world_cubit.dart';
 import '../core/app_colors.dart';
+import '../core/cosmetic_catalog.dart';
+import '../core/food_catalog.dart';
 import '../cubit/pet_cubit.dart';
 import '../cubit/pet_state.dart';
-import '../widgets/paw_map_widget.dart';
+import '../domain/enums/pet_activity.dart';
+import '../domain/enums/pet_location.dart';
 import '../widgets/action_screen_header.dart';
-import 'dart:async';
+import '../widgets/paw_map_widget.dart';
 
-/// Modelo de alimento
-class FoodItem {
-  final String id;
-  final String emoji;
-  final String name;
-  final int hunger;
-  final Color color;
-
-  FoodItem({
-    required this.id,
-    required this.emoji,
-    required this.name,
-    required this.hunger,
-    required this.color,
-  });
-}
-
-/// Pantalla de Alimentar
 class AlimentarScreen extends StatefulWidget {
-
   const AlimentarScreen({super.key});
 
   @override
@@ -39,76 +26,34 @@ class AlimentarScreen extends StatefulWidget {
 }
 
 class _AlimentarScreenState extends State<AlimentarScreen>
-with SingleTickerProviderStateMixin {
-  // Lista de alimentos disponibles
-  final List<FoodItem> foodItems = [
-    FoodItem(
-      id: '1',
-      emoji: '🥩',
-      name: 'Carne',
-      hunger: 30,
-      color: const Color(0xFFf07a94),
-    ),
-    FoodItem(
-      id: '2',
-      emoji: '🍖',
-      name: 'Hueso',
-      hunger: 25,
-      color: const Color(0xFFa3ff88),
-    ),
-    FoodItem(
-      id: '3',
-      emoji: '🥕',
-      name: 'Zanahoria',
-      hunger: 15,
-      color: const Color(0xFF8ae670),
-    ),
-    FoodItem(
-      id: '4',
-      emoji: '🐟',
-      name: 'Pescado',
-      hunger: 28,
-      color: const Color(0xFF708be6),
-    ),
-    FoodItem(
-      id: '5',
-      emoji: '🍗',
-      name: 'Pollo',
-      hunger: 26,
-      color: const Color(0xFF8aa2ff),
-    ),
-    FoodItem(
-      id: '6',
-      emoji: '🥛',
-      name: 'Leche',
-      hunger: 10,
-      color: const Color(0xFFa3ff88),
-    ),
-  ];
+    with SingleTickerProviderStateMixin {
+  static const int _defaultMissionRewardCoins = 5;
 
-  // Estado de la pantalla
-  FoodItem? activeBag;
-  double plateLevel = 0.0;
-  bool eating = false;
-  List<String> foodInPlate = [];
-  bool cupboardOpen = false;
-  Timer? pouringTimer;
-  Timer? eatingTimer;
-  Timer? _plateDecayTimer;          // Timer que vacía el plato solo
-  bool _misionTraviesaActiva = false; // true = comida tirada por la pantalla
-  List<Offset> _comidaTirada = [];    // posiciones aleatorias de la comida
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final Random _random = Random();
 
-  static const Map<String, double> _velocidadPlato = {
-    'Glotón':     8.0,  // baja muy rápido — come todo de jalón
-    'Juguetón':   3.0,  // baja normal pero tira comida
-    'Travieso':   3.0,  // igual que juguetón pero genera misión
-    'Dormilón':   0.5,  // baja muy lento — come despacio
-    'Curioso':    1.5,  // baja moderado
-    'Tierno':     1.0,  // baja lento — come con calma
-  };
-
-  // Animación de la mascota
   late AnimationController _petAnimationController;
+  final LayerLink _cupboardLayerLink = LayerLink();
+
+  FoodCatalogItem? activeBag;
+  double plateLevel = 0;
+  bool eating = false;
+  bool cupboardOpen = false;
+  bool _loadingData = true;
+  int _coins = 0;
+
+  String? _plateFoodId;
+  String _plateEmoji = 'ðŸ¥©';
+  List<String> foodInPlate = [];
+
+  Map<String, double> _inventoryUnits = {};
+  Map<String, bool> _unlockedFoods = {};
+
+  Timer? pouringTimer;
+  bool _misionTraviesaActiva = false;
+  List<Offset> _comidaTirada = [];
+  double _swipeDx = 0.0;
 
   @override
   void initState() {
@@ -117,479 +62,933 @@ with SingleTickerProviderStateMixin {
       duration: const Duration(seconds: 2),
       vsync: this,
     )..repeat(reverse: true);
+    _cargarDatos();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _syncWorldEntry();
+      await _ensureLockedEatingState();
+    });
+  }
+
+  Future<void> _syncWorldEntry() async {
+    if (!mounted) return;
+    final mascota = context.read<PetCubit>().state.mascota;
+    if (mascota == null) return;
+    await context.read<PetWorldCubit>().syncScreenEntry(
+      mascota: mascota,
+      location: PetLocation.alimentar,
+      fallbackActivity: eating ? PetActivity.eating : PetActivity.idle,
+    );
+  }
+
+  Future<void> _ensureLockedEatingState() async {
+    if (!mounted) return;
+    final world = context.read<PetWorldCubit>().state;
+    final mascota = context.read<PetCubit>().state.mascota;
+    if (mascota == null) return;
+    if (world.isLocationLocked &&
+        world.location == PetLocation.alimentar &&
+        world.activity == PetActivity.eating &&
+        mascota.nivelPlato > 0 &&
+        !mascota.platoComiendo) {
+      await context.read<PetCubit>().iniciarComidaPlato();
+    }
+  }
+
+  Future<void> _syncEatingAnchor({required bool isEatingNow}) async {
+    final mascota = context.read<PetCubit>().state.mascota;
+    if (mascota == null) return;
+    final worldCubit = context.read<PetWorldCubit>();
+
+    if (isEatingNow) {
+      await worldCubit.updateWorld(
+        mascota: mascota,
+        next: worldCubit.state.copyWith(
+          location: PetLocation.alimentar,
+          activity: PetActivity.eating,
+          currentFoodId: _plateFoodId ?? worldCubit.state.currentFoodId,
+          clearToy: true,
+          isLocationLocked: true,
+          isNapTime: false,
+          simulatedAt: DateTime.now(),
+        ),
+      );
+      return;
+    }
+
+    if (worldCubit.state.isLocationLocked &&
+        worldCubit.state.location == PetLocation.alimentar) {
+      await worldCubit.updateWorld(
+        mascota: mascota,
+        next: worldCubit.state.copyWith(
+          activity: PetActivity.idle,
+          clearFood: true,
+          isLocationLocked: false,
+          isNapTime: false,
+          simulatedAt: DateTime.now(),
+        ),
+      );
+    }
   }
 
   @override
   void dispose() {
-    _petAnimationController.dispose();
     pouringTimer?.cancel();
-    eatingTimer?.cancel();
-    _plateDecayTimer?.cancel();
+    _petAnimationController.dispose();
     super.dispose();
   }
 
-  /// Selecciona un alimento de la alacena
-  void handleSelectFood(FoodItem food) {
-    if (eating || plateLevel >= 100) return;
+  Future<void> _cargarDatos() async {
+    final userId = _auth.currentUser?.uid;
+    final pet = context.read<PetCubit>().state.mascota;
+    if (pet != null) {
+      plateLevel = pet.nivelPlato;
+      eating = pet.platoComiendo;
+      if (pet.platoAlimentoId.isNotEmpty) {
+        _plateFoodId = pet.platoAlimentoId;
+        _plateEmoji = pet.platoEmoji.isNotEmpty
+            ? pet.platoEmoji
+            : (FoodCatalog.byId(pet.platoAlimentoId)?.emoji ?? _plateEmoji);
+      }
+      _syncFoodInPlate();
+    }
+
+    if (userId == null) {
+      if (!mounted) return;
+      setState(() => _loadingData = false);
+      return;
+    }
+
+    try {
+      final userRef = _firestore.collection('usuarios').doc(userId);
+      final snap = await userRef.get();
+      final data = snap.data() ?? <String, dynamic>{};
+      final rawInventory =
+          (data['inventario_comida'] as Map<String, dynamic>?) ?? {};
+      final rawUnlocked =
+          (data['alimentos_desbloqueados'] as Map<String, dynamic>?) ?? {};
+
+      final normalizedInventory = <String, double>{};
+      final normalizedUnlocked = <String, bool>{};
+      final starterInventory = FoodCatalog.starterInventory();
+      final starterUnlocked = FoodCatalog.starterUnlocked();
+      for (final food in FoodCatalog.items) {
+        final inv = rawInventory[food.id];
+        final unlock = rawUnlocked[food.id];
+        normalizedInventory[food.id] = inv is num
+            ? inv.toDouble().clamp(0, 99999).toDouble()
+            : (starterInventory[food.id] ?? 0.0);
+        normalizedUnlocked[food.id] = unlock is bool
+            ? unlock
+            : (starterUnlocked[food.id] ?? false);
+      }
+
+      final coins =
+          (data['monedas'] as num?)?.toInt() ??
+          (data['totalScore'] as num?)?.toInt() ??
+          245;
+
+      await userRef.set({
+        'monedas': coins,
+        'inventario_comida': normalizedInventory,
+        'alimentos_desbloqueados': normalizedUnlocked,
+      }, SetOptions(merge: true));
+
+      if (!mounted) return;
+      setState(() {
+        _coins = coins;
+        _inventoryUnits = normalizedInventory;
+        _unlockedFoods = normalizedUnlocked;
+        _loadingData = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingData = false);
+    }
+  }
+
+  void _syncFoodInPlate() {
+    final pieces = (plateLevel / 20).ceil().clamp(0, 5).toInt();
+    foodInPlate = List<String>.generate(pieces, (_) => _plateEmoji);
+  }
+
+  bool _isFoodUnlocked(String id) => _unlockedFoods[id] ?? false;
+
+  bool _canUseFood(String id) =>
+      _isFoodUnlocked(id) && (_inventoryUnits[id] ?? 0.0) > 0.0;
+
+  Future<void> _persistInventoryAndPlate() async {
+    final petCubit = context.read<PetCubit>();
+    final userId = _auth.currentUser?.uid;
+    if (userId != null) {
+      await _firestore.collection('usuarios').doc(userId).set({
+        'monedas': _coins,
+        'inventario_comida': _inventoryUnits,
+        'alimentos_desbloqueados': _unlockedFoods,
+      }, SetOptions(merge: true));
+    }
+
+    await petCubit.actualizarEstadoPlato(
+      nivelPlato: plateLevel,
+      platoAlimentoId: plateLevel > 0 ? _plateFoodId : null,
+      clearPlatoAlimentoId: plateLevel <= 0,
+      platoEmoji: plateLevel > 0 ? _plateEmoji : null,
+      clearPlatoEmoji: plateLevel <= 0,
+      platoComiendo: eating,
+      platoActualizado: DateTime.now(),
+    );
+  }
+
+  void _showFoodInfo(FoodCatalogItem food) {
+    final units = _inventoryUnits[food.id] ?? 0.0;
+    final bags = (units / FoodCatalog.bagUnits).toStringAsFixed(1);
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('${food.emoji} ${food.name}'),
+        content: Text(
+          'Sube hambre: +${food.hungerPoints}\n'
+          'Cantidad disponible: $bags bolsas',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void handleSelectFood(FoodCatalogItem food) {
+    if (eating) return;
+
+    if (!_isFoodUnlocked(food.id)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ese alimento estÃ¡ bloqueado. CÃ³mpralo en Tienda.'),
+        ),
+      );
+      return;
+    }
+
+    if ((_inventoryUnits[food.id] ?? 0.0) <= 0.0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No tienes bolsas de ${food.name}.')),
+      );
+      return;
+    }
+
+    if (plateLevel > 0 && _plateFoodId != null && _plateFoodId != food.id) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Primero termina el alimento que ya estÃ¡ en el plato.'),
+        ),
+      );
+      return;
+    }
+
     setState(() {
       activeBag = food;
       cupboardOpen = false;
+      _plateFoodId ??= food.id;
+      _plateEmoji = food.emoji;
     });
   }
 
-  /// Inicia el vertido de comida
   void startPouring() {
-    if (activeBag == null || plateLevel >= 100 || pouringTimer != null) return;
+    final bag = activeBag;
+    if (bag == null || eating || plateLevel >= 100 || pouringTimer != null) {
+      return;
+    }
+    if (!_canUseFood(bag.id)) return;
 
-    pouringTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+    if (_plateFoodId != null && _plateFoodId != bag.id && plateLevel > 0) {
+      return;
+    }
+
+    _plateFoodId = bag.id;
+    _plateEmoji = bag.emoji;
+
+    pouringTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      final currentUnits = _inventoryUnits[bag.id] ?? 0.0;
+      if (currentUnits <= 0.0 || plateLevel >= 100) {
+        stopPouring();
+        return;
+      }
+
+      const plateStep = 2.0;
+      final plateAvailable = 100.0 - plateLevel;
+      final plateIncrease = min(plateStep, plateAvailable);
+      final bagCost = plateIncrease * FoodCatalog.bagUsagePerPlatePercent;
+
       setState(() {
-        plateLevel = (plateLevel + 2).clamp(0, 100);
-
-        // Agregar emoji visual cada cierto nivel
-        if (plateLevel % 20 == 0 && plateLevel > 0) {
-          foodInPlate.add(activeBag!.emoji);
+        if (currentUnits >= bagCost) {
+          plateLevel = (plateLevel + plateIncrease).clamp(0, 100);
+          _inventoryUnits[bag.id] = (currentUnits - bagCost)
+              .clamp(0, 99999)
+              .toDouble();
+        } else {
+          final possibleIncrease =
+              currentUnits / FoodCatalog.bagUsagePerPlatePercent;
+          plateLevel = (plateLevel + possibleIncrease).clamp(0, 100);
+          _inventoryUnits[bag.id] = 0.0;
         }
-
-        if (plateLevel >= 100) {
-          stopPouring();
-        }
+        _syncFoodInPlate();
       });
+
+      if ((_inventoryUnits[bag.id] ?? 0.0) <= 0.0 || plateLevel >= 100) {
+        stopPouring();
+      }
     });
   }
 
-  /// Detiene el vertido de comida
-  void stopPouring() {
+  Future<void> stopPouring() async {
     pouringTimer?.cancel();
     pouringTimer = null;
+    await _persistInventoryAndPlate();
   }
 
-  /// Elimina la bolsa activa
   void removeBag() {
     setState(() {
       activeBag = null;
     });
   }
 
-  /// Alimenta a la mascota (llamado al finalizar el vaciado del plato)
-  void _iniciarVaciadoPlato(String rasgo, int puntos, bool esTravieso) {
-    _plateDecayTimer?.cancel();
+  Future<void> handleFeedPet() async {
+    if (plateLevel <= 0 || _plateFoodId == null) return;
 
-    // Velocidad según personalidad (puntos por tick de 300ms)
-    final velocidad = _velocidadPlato[rasgo] ?? 1.5;
+    final petCubit = context.read<PetCubit>();
+    final estadoDescanso = petCubit.state.mascota?.estadoDescanso ?? 'despierto';
+    final estaDescansando =
+        estadoDescanso == 'dormido' ||
+        estadoDescanso == 'acostado' ||
+        estadoDescanso == 'siesta';
+    if (estaDescansando) return;
 
-    _plateDecayTimer = Timer.periodic(const Duration(milliseconds: 300), (timer) {
-      setState(() {
-        plateLevel = (plateLevel - velocidad).clamp(0, 100);
+    final rasgo = petCubit.state.mascota?.rasgo ?? 'Curioso';
+    final isJugueton = rasgo == 'JuguetÃ³n';
+    final isTravieso = rasgo == 'Travieso';
+    final throwProbability = isTravieso ? 0.45 : (isJugueton ? 0.30 : 0.0);
 
-        if (plateLevel <= 0) {
-          timer.cancel();
-          _plateDecayTimer = null;
-          foodInPlate.clear();
+    if (throwProbability > 0 && _random.nextDouble() <= throwProbability) {
+      _tirarComida();
+      final item = FoodCatalog.byId(_plateFoodId);
+      final puntos = ((item?.hungerPoints ?? 15) * 0.2).round();
+      await petCubit.alimentar(puntos, emojiAlimento: _plateEmoji);
+      await petCubit.detenerComidaPlato();
+      return;
+    }
 
-          // Si NO es travieso → alimentar normal al terminar
-          if (!esTravieso) {
-            context.read<PetCubit>().alimentar(puntos);
-          }
-
-          Future.delayed(const Duration(milliseconds: 500), () {
-            if (mounted) setState(() => eating = false);
-          });
-        }
-      });
-    });
+    setState(() => eating = true);
+    await petCubit.iniciarComidaPlato();
+    await _syncEatingAnchor(isEatingNow: true);
   }
 
-  // Si la mascota es traviesa/juguetona, tira comida por la pantalla
-  void _tirarComida() {
-    final random = Random();
-    final screenWidth  = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
+  Future<void> _detenerComidaManual() async {
+    setState(() => eating = false);
+    await context.read<PetCubit>().detenerComidaPlato();
+    await _syncEatingAnchor(isEatingNow: false);
+  }
 
-    // Genera 5-8 posiciones aleatorias en la pantalla
-    final cantidad = 5 + random.nextInt(4);
-    final nuevasPos = List.generate(cantidad, (_) => Offset(
-      random.nextDouble() * (screenWidth  - 60) + 30,
-      random.nextDouble() * (screenHeight - 200) + 100,
-    ));
+  void _tirarComida() {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final cantidad = 5 + _random.nextInt(4);
+
+    final posiciones = List.generate(
+      cantidad,
+      (_) => Offset(
+        _random.nextDouble() * (screenWidth - 60) + 30,
+        _random.nextDouble() * (screenHeight - 200) + 100,
+      ),
+    );
 
     setState(() {
-      _comidaTirada = nuevasPos;
+      _comidaTirada = posiciones;
       _misionTraviesaActiva = true;
-      plateLevel = 0;       // El plato queda vacío
+      plateLevel = 0;
+      _plateFoodId = null;
       foodInPlate.clear();
       eating = false;
     });
 
-    // Guardar misión en Firestore
     _crearMisionRecoger();
+    context.read<PetCubit>().actualizarEstadoPlato(
+      nivelPlato: 0,
+      clearPlatoAlimentoId: true,
+      clearPlatoEmoji: true,
+      platoComiendo: false,
+      platoActualizado: DateTime.now(),
+    );
   }
 
-  // FUNCIÓN PARA CARGAR MASCOTA DESDE FIREBASE (llamada al iniciar la pantalla)
   Future<void> _crearMisionRecoger() async {
-    final userId = FirebaseAuth.instance.currentUser?.uid;
+    final userId = _auth.currentUser?.uid;
     final mascotaId = context.read<PetCubit>().state.mascota?.idMascota;
     if (userId == null || mascotaId == null) return;
 
-    try {
-      await FirebaseFirestore.instance
-          .collection('usuarios').doc(userId)
-          .collection('mascotas').doc(mascotaId)
-          .collection('misiones_activas').add({
-        'tipo': 'recoger_comida',
-        'estado': 'pendiente',
-        'emoji': activeBag?.emoji ?? '🥩',
-        'fecha_asignada': Timestamp.now(),
-        'fecha_completada': null,
-        'streak': 0,
-      });
-    } catch (e) {
-      debugPrint('Error al crear misión: $e');
-    }
+    await _firestore
+        .collection('usuarios')
+        .doc(userId)
+        .collection('mascotas')
+        .doc(mascotaId)
+        .collection('misiones_activas')
+        .add({
+          'tipo': 'recoger_comida',
+          'reward_coins': _defaultMissionRewardCoins,
+          'estado': 'pendiente',
+          'emoji': _plateEmoji,
+          'fecha_asignada': Timestamp.now(),
+          'fecha_completada': null,
+          'streak': 0,
+        });
   }
 
-  // Función para recoger comida tirada (llamada al pulsar cada comida)
-  void _recogerComida(int index) {
+  Future<int> _completarMisionRecoger() async {
+    final userId = _auth.currentUser?.uid;
+    final mascotaId = context.read<PetCubit>().state.mascota?.idMascota;
+    if (userId == null || mascotaId == null) return 0;
+
+    final pending = await _firestore
+        .collection('usuarios')
+        .doc(userId)
+        .collection('mascotas')
+        .doc(mascotaId)
+        .collection('misiones_activas')
+        .where('tipo', isEqualTo: 'recoger_comida')
+        .where('estado', isEqualTo: 'pendiente')
+        .get();
+
+    if (pending.docs.isEmpty) return 0;
+    final batch = _firestore.batch();
+    var coinsGanadas = 0;
+    for (final doc in pending.docs) {
+      final data = doc.data();
+      coinsGanadas += _rewardCoinsFromMissionData(data);
+      batch.update(doc.reference, {
+        'estado': 'completada',
+        'fecha_completada': Timestamp.now(),
+      });
+    }
+    await batch.commit();
+    return coinsGanadas;
+  }
+
+  int _rewardCoinsFromMissionData(Map<String, dynamic> data) {
+    final coins = (data['reward_coins'] as num?)?.toInt() ?? 0;
+    return coins > 0 ? coins : _defaultMissionRewardCoins;
+  }
+
+  Future<void> _sumarCoinsMisionRecoger({int coins = 5}) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null || coins <= 0) return;
+
+    final userRef = _firestore.collection('usuarios').doc(userId);
+    int totalActualizado = _coins;
+
+    await _firestore.runTransaction((tx) async {
+      final snap = await tx.get(userRef);
+      final data = snap.data() ?? <String, dynamic>{};
+      final monedasActuales =
+          (data['monedas'] as num?)?.toInt() ??
+          (data['totalScore'] as num?)?.toInt() ??
+          0;
+      totalActualizado = monedasActuales + coins;
+      tx.set(userRef, {'monedas': totalActualizado}, SetOptions(merge: true));
+    });
+
+    if (!mounted) return;
+    setState(() => _coins = totalActualizado);
+  }
+
+  Future<void> _recogerComida(int index) async {
+    final petCubit = context.read<PetCubit>();
     setState(() {
       _comidaTirada.removeAt(index);
-      if (_comidaTirada.isEmpty) {
-        _misionTraviesaActiva = false;
-        // Misión completada — sube limpieza
-        context.read<PetCubit>().banar(); // reutiliza banar para subir limpieza
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('¡Recogiste toda la comida! +limpieza 🧹'),
-            backgroundColor: Color(0xFF8AE670),
-          ),
-        );
-      }
     });
+
+    if (_comidaTirada.isNotEmpty) return;
+
+    setState(() => _misionTraviesaActiva = false);
+    final coinsGanadas = await _completarMisionRecoger();
+    if (coinsGanadas > 0) {
+      await _sumarCoinsMisionRecoger(coins: coinsGanadas);
+    }
+    await petCubit.aumentarLimpieza(3, accion: 'recoger_comida_limpieza');
+
+    if (!mounted) return;
+    final bonusMonedas = coinsGanadas > 0 ? ' y +$coinsGanadas monedas' : '';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Recogiste toda la comida. +3 limpieza$bonusMonedas'),
+        backgroundColor: Color(0xFF8AE670),
+      ),
+    );
   }
 
-  /// Alimenta a la mascota
-  void handleFeedPet() {
-    if (plateLevel == 0 || eating || activeBag == null) return;
-
-    final rasgo = context.read<PetCubit>().state.mascota?.rasgo ?? 'Curioso';
-    final esTravieso = rasgo == 'Travieso' || rasgo == 'Juguetón';
-    final puntosAlimento = activeBag!.hunger;
-
-    setState(() => eating = true);
-
-    // Si es travieso/juguetón: tira comida, sube hambre muy poco
-    if (esTravieso) {
-      _tirarComida();
-      // Solo sube un 20% de los puntos normales
-      context.read<PetCubit>().alimentar((puntosAlimento * 0.2).round());
-    }
-
-    // Iniciar vaciado automático del plato
-    _iniciarVaciadoPlato(rasgo, puntosAlimento, esTravieso);
+  String _stockLabel(String foodId) {
+    final units = _inventoryUnits[foodId] ?? 0.0;
+    final bags = (units / FoodCatalog.bagUnits).toStringAsFixed(1);
+    return '$bags bolsas';
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => mostrarMapaHuella(context),
-        backgroundColor: AppColors.verdeFondo, // O el color que estés usando
-        elevation: 8,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-        child: const Icon(Icons.pets, color: AppColors.azulPrincipal, size: 28),
-      ),
-      body: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onHorizontalDragEnd: (details) {
-          if (details.primaryVelocity != null && details.primaryVelocity! < 0) {
-            context.go('/home');
+    return BlocListener<PetCubit, PetState>(
+      listenWhen: (previous, current) {
+        return previous.mascota?.nivelPlato != current.mascota?.nivelPlato ||
+            previous.mascota?.platoComiendo != current.mascota?.platoComiendo ||
+            previous.mascota?.platoAlimentoId !=
+                current.mascota?.platoAlimentoId ||
+            previous.mascota?.platoEmoji != current.mascota?.platoEmoji;
+      },
+      listener: (context, state) async {
+        if (pouringTimer != null) return;
+        final mascota = state.mascota;
+        if (mascota == null) return;
+        if (!mounted) return;
+        setState(() {
+          plateLevel = mascota.nivelPlato;
+          eating = mascota.platoComiendo;
+          _plateFoodId = mascota.platoAlimentoId.isEmpty
+              ? null
+              : mascota.platoAlimentoId;
+          if (mascota.platoEmoji.isNotEmpty) {
+            _plateEmoji = mascota.platoEmoji;
+          } else if (_plateFoodId != null) {
+            _plateEmoji = FoodCatalog.byId(_plateFoodId)?.emoji ?? _plateEmoji;
           }
-        },
-        child: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Color(0xFFe8d5c4),
-                Color(0xFFf0e6d2),
-                Color(0xFFd4c4b0),
+          _syncFoodInPlate();
+        });
+        await _syncEatingAnchor(
+          isEatingNow: mascota.platoComiendo && mascota.nivelPlato > 0,
+        );
+      },
+      child: Scaffold(
+        floatingActionButton: FloatingActionButton(
+          onPressed: () => mostrarMapaHuella(context),
+          backgroundColor: AppColors.verdeFondo,
+          elevation: 8,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(30),
+          ),
+          child: const Icon(
+            Icons.pets,
+            color: AppColors.azulPrincipal,
+            size: 28,
+          ),
+        ),
+        body: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: (_) {
+            _swipeDx = 0.0;
+          },
+          onHorizontalDragUpdate: (details) {
+            _swipeDx += details.delta.dx;
+          },
+          onHorizontalDragEnd: (details) {
+            const minDistance = 90.0;
+            const minVelocity = 700.0;
+            final velocityX = details.primaryVelocity ?? 0.0;
+            final isIntentionalLeftSwipe =
+                _swipeDx <= -minDistance && velocityX <= -minVelocity;
+
+            if (isIntentionalLeftSwipe) {
+              context.go('/home');
+            }
+            _swipeDx = 0.0;
+          },
+          child: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xFFE8D5C4),
+                  Color(0xFFF0E6D2),
+                  Color(0xFFD4C4B0),
+                ],
+              ),
+            ),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Opacity(
+                    opacity: 0.1,
+                    child: CustomPaint(painter: TilePainter()),
+                  ),
+                ),
+                SafeArea(
+                  top: false,
+                  child: Column(
+                    children: [
+                      ActionScreenHeader(
+                        icon: Icons.kitchen,
+                        title: 'Comedor',
+                        subtitlePrefix: 'Hora de comer',
+                        statLabel: 'Hambre:',
+                        statSelector: (mascota) => mascota.nivelHambre,
+                        barColors: const [Color(0xFFF0C77A), Color(0xFFFFD166)],
+                      ),
+                      if (_loadingData)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 10),
+                          child: CircularProgressIndicator(),
+                        ),
+                      if (!_loadingData)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 9,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.doradoSuave,
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(color: AppColors.doradoBorde),
+                            ),
+                            child: Text(
+                              '🪙 $_coins',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.doradoTexto,
+                              ),
+                            ),
+                          ),
+                        ),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24.0),
+                          child: Column(
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  SizedBox(
+                                    width: 150,
+                                    height: 120,
+                                    child: _buildCupboard(),
+                                  ),
+                                  const SizedBox(width: 16),
+                                  Expanded(child: _buildTable()),
+                                ],
+                              ),
+                              const SizedBox(height: 24),
+                              Expanded(child: _buildPet()),
+                              _buildPlate(),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (cupboardOpen) _buildCupboardOverlay(),
+                _buildComidaTirada(),
               ],
             ),
           ),
-          child: Stack(
-            children: [
-              // Textura de azulejos
-              Positioned.fill(
-                child: Opacity(
-                  opacity: 0.1,
-                  child: CustomPaint(
-                    painter: TilePainter(),
-                  ),
-                ),
-              ),
-
-              // Contenido principal
-              SafeArea(
-                top: false,
-                child: Column(
-                  children: [
-                    // Header
-                    ActionScreenHeader(
-                      icon: Icons.kitchen,
-                      title: 'Comedor',
-                      subtitlePrefix: 'Hora de comer',
-                      statLabel: 'Hambre:',
-                      statSelector: (mascota) => mascota.nivelHambre, // Le decimos que lea el Hambre
-                      barColors: const [Color(0xFFF0C77A), Color(0xFFFFD166)], // Usa tu AppColors.nivelHambre 0xFFFF8C42
-                    ),
-                    // Área principal
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24.0),
-                        child: Column(
-                          children: [
-                            // Alacena y Mesa
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _buildCupboard(),
-                                const SizedBox(width: 16),
-                                Expanded(child: _buildTable()),
-                              ],
-                            ),
-
-                            const SizedBox(height: 24),
-
-                            // Mascota
-                            Expanded(child: _buildPet()),
-
-                            // Plato
-                            _buildPlate(),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // Bolsa arrastrable
-              //if (activeBag != null) _buildDraggableBag(),
-              _buildComidaTirada(),
-            ],
-          ),
         ),
-      )
+      ),
     );
   }
 
-  /// Header con título, descripción y barra de hambre
-  
-
-  /// Alacena con alimentos (Expansión controlada)
   Widget _buildCupboard() {
-    // 1. Ancho FIJO para que no se expanda a los lados
-    final double cupboardWidth = 140; 
-    
-    // 2. Alto controlado (No se estira de más)
-    final double closedHeight = 120;
-    final double openHeight = 280; // Altura máxima al abrirse
+    const double cupboardWidth = 150;
+    const double closedHeight = 120;
 
-    return GestureDetector(
-      onTap: () {
-        if (!cupboardOpen) {
-          setState(() {
-            cupboardOpen = true;
-          });
-        }
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-        width: cupboardWidth,
-        height: cupboardOpen ? openHeight : closedHeight,
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF6d4c3d), Color(0xFF4a3428)],
-          ),
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.3),
-              blurRadius: 15,
-              offset: const Offset(0, 8),
+    return CompositedTransformTarget(
+      link: _cupboardLayerLink,
+      child: GestureDetector(
+        onTap: () => setState(() => cupboardOpen = !cupboardOpen),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          width: cupboardWidth,
+          height: closedHeight,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF6D4C3D), Color(0xFF4A3428)],
             ),
-          ],
-        ),
-        child: cupboardOpen
-            ? Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: cupboardOpen
+                  ? const Color(0xFFF0D79D)
+                  : Colors.transparent,
+              width: 1.5,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 15,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(6.0),
+                child: Row(
                   children: [
-                    // Header de la alacena abierta
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          'Alimentos',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              cupboardOpen = false;
-                            });
-                          },
-                          child: const Text(
-                            '✕',
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    // Grid de alimentos
                     Expanded(
-                      child: GridView.builder(
-                        physics: const BouncingScrollPhysics(),
-                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2, 
-                          crossAxisSpacing: 8,
-                          mainAxisSpacing: 8,
-                          childAspectRatio: 0.85,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: const Color(0xFF3E291E),
+                            width: 2,
+                          ),
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(6),
+                            bottomLeft: Radius.circular(6),
+                          ),
                         ),
-                        itemCount: foodItems.length,
-                        itemBuilder: (context, index) {
-                          final food = foodItems[index];
-                          return GestureDetector(
-                            onTap: () => handleSelectFood(food),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.9),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    food.emoji,
-                                    style: const TextStyle(fontSize: 26),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    food.name,
-                                    style: const TextStyle(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w600,
-                                      color: Colors.black87,
-                                    ),
-                                    textAlign: TextAlign.center,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Expanded(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: const Color(0xFF3E291E),
+                            width: 2,
+                          ),
+                          borderRadius: const BorderRadius.only(
+                            topRight: Radius.circular(6),
+                            bottomRight: Radius.circular(6),
+                          ),
+                        ),
                       ),
                     ),
                   ],
                 ),
-              )
-            // ▼ DISEÑO DE LA ALACENA CERRADA ▼
-            : Stack(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(6.0),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              border: Border.all(color: const Color(0xFF3e291e), width: 2),
-                              borderRadius: const BorderRadius.only(
-                                topLeft: Radius.circular(6),
-                                bottomLeft: Radius.circular(6),
-                              ),
-                            ),
-                            child: Align(
-                              alignment: Alignment.centerRight,
-                              child: Padding(
-                                padding: const EdgeInsets.only(right: 8.0),
-                                child: Container(
-                                  width: 10,
-                                  height: 10,
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFFd4c4b0),
-                                    shape: BoxShape.circle,
-                                    boxShadow: [BoxShadow(color: Colors.black45, blurRadius: 2)],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 2),
-                        Expanded(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              border: Border.all(color: const Color(0xFF3e291e), width: 2),
-                              borderRadius: const BorderRadius.only(
-                                topRight: Radius.circular(6),
-                                bottomRight: Radius.circular(6),
-                              ),
-                            ),
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: Padding(
-                                padding: const EdgeInsets.only(left: 8.0),
-                                child: Container(
-                                  width: 10,
-                                  height: 10,
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFFd4c4b0),
-                                    shape: BoxShape.circle,
-                                    boxShadow: [BoxShadow(color: Colors.black45, blurRadius: 2)],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
+              ),
+              Align(
+                alignment: Alignment.topCenter,
+                child: Container(
+                  margin: const EdgeInsets.only(top: 16),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF3E291E).withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFF8B6F47),
+                      width: 1,
+                    ),
+                  ),
+                  child: const Text(
+                    'Alacena',
+                    style: TextStyle(
+                      color: Color(0xFFF0E6D2),
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                ),
+              ),
+              if (cupboardOpen)
+                const Align(
+                  alignment: Alignment.bottomCenter,
+                  child: Padding(
+                    padding: EdgeInsets.only(bottom: 8),
+                    child: Icon(
+                      Icons.keyboard_arrow_up,
+                      color: Color(0xFFF0D79D),
+                      size: 18,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCupboardOverlay() {
+    const double cupboardWidth = 150;
+    const double openHeight = 330;
+
+    return Positioned.fill(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => setState(() => cupboardOpen = false),
+        child: Stack(
+          children: [
+            CompositedTransformFollower(
+              link: _cupboardLayerLink,
+              showWhenUnlinked: false,
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () {},
+                  child: Container(
+                    width: cupboardWidth,
+                    height: openHeight,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Color(0xFF6D4C3D), Color(0xFF4A3428)],
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.38),
+                          blurRadius: 18,
+                          offset: const Offset(0, 10),
                         ),
                       ],
                     ),
-                  ),
-                  Align(
-                    alignment: Alignment.topCenter,
-                    child: Container(
-                      margin: const EdgeInsets.only(top: 16),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF3e291e).withValues(alpha: 0.9),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFF8b6f47), width: 1),
-                      ),
-                      child: const Text(
-                        'Alacena',
-                        style: TextStyle(
-                          color: Color(0xFFf0e6d2),
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.2,
-                        ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        children: [
+                    // Header de la alacena abierta
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'Alimentos',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () =>
+                                    setState(() => cupboardOpen = false),
+                                icon: const Icon(
+                                  Icons.close,
+                                  color: Colors.white70,
+                                  size: 16,
+                                ),
+                                splashRadius: 16,
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Expanded(
+                            child: GridView.builder(
+                              physics: const BouncingScrollPhysics(),
+                              gridDelegate:
+                                  const SliverGridDelegateWithFixedCrossAxisCount(
+                                    crossAxisCount: 2,
+                                    crossAxisSpacing: 8,
+                                    mainAxisSpacing: 8,
+                                    childAspectRatio: 0.78,
+                                  ),
+                              itemCount: FoodCatalog.items.length,
+                              itemBuilder: (context, index) {
+                                final food = FoodCatalog.items[index];
+                                final isUnlocked = _isFoodUnlocked(food.id);
+                                final hasStock =
+                                    (_inventoryUnits[food.id] ?? 0.0) > 0.0;
+                                return GestureDetector(
+                                  onTap: () => handleSelectFood(food),
+                                  onLongPress: () => _showFoodInfo(food),
+                                  child: Stack(
+                                    children: [
+                                      Container(
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.9,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          border: Border.all(
+                                            color:
+                                                (_plateFoodId == food.id &&
+                                                    plateLevel > 0)
+                                                ? AppColors.azulPrincipal
+                                                : Colors.transparent,
+                                            width: 2,
+                                          ),
+                                        ),
+                                        child: Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            Text(
+                                              food.emoji,
+                                              style: const TextStyle(
+                                                fontSize: 24,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              food.name,
+                                              style: const TextStyle(
+                                                fontSize: 9,
+                                                fontWeight: FontWeight.w700,
+                                                color: Colors.black87,
+                                              ),
+                                              textAlign: TextAlign.center,
+                                            ),
+                                            const SizedBox(height: 1),
+                                            Text(
+                                              _stockLabel(food.id),
+                                              style: const TextStyle(
+                                                fontSize: 8,
+                                                color: Colors.black54,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (!isUnlocked || !hasStock)
+                                        Positioned.fill(
+                                          child: Container(
+                                            decoration: BoxDecoration(
+                                              color: Colors.black.withValues(
+                                                alpha: 0.45,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                            ),
+                                            child: Center(
+                                              child: Text(
+                                                !isUnlocked
+                                                    ? 'Bloqueado'
+                                                    : 'Sin bolsas',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                                textAlign: TextAlign.center,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                ],
+                ),
               ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -602,10 +1001,10 @@ with SingleTickerProviderStateMixin {
         gradient: const LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFF8b6f47), Color(0xFF6d5736)],
+          colors: [Color(0xFF8B6F47), Color(0xFF6D5736)],
         ),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF4a3428), width: 4),
+        border: Border.all(color: const Color(0xFF4A3428), width: 4),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.2),
@@ -620,9 +1019,7 @@ with SingleTickerProviderStateMixin {
           Positioned.fill(
             child: Opacity(
               opacity: 0.2,
-              child: CustomPaint(
-                painter: WoodGrainPainter(),
-              ),
+              child: CustomPaint(painter: WoodGrainPainter()),
             ),
           ),
 
@@ -654,20 +1051,14 @@ with SingleTickerProviderStateMixin {
               ),
             ),
           if (activeBag != null)
-            // Centramos la bolsa dentro de la cajita de la mesa
-            Center(
-              child: _buildDraggableBag(context), 
-            ),
-          // Mensaje si no hay bolsa
-          if (activeBag == null)
+            Center(child: _buildDraggableBag(context))
+          else
             const Center(
               child: Text(
                 'Selecciona comida\nde la alacena',
                 textAlign: TextAlign.center,
-                style: TextStyle(
                   color: Colors.white54,
-                  fontSize: 14,
-                ),
+                style: TextStyle(color: Colors.white54, fontSize: 14),
               ),
             ),
         ],
@@ -677,81 +1068,144 @@ with SingleTickerProviderStateMixin {
 
   /// Mascota animada
   Widget _buildPet() {
-    return BlocBuilder<PetCubit, PetState>(
-      builder: (context, state){
-        final petEmoji = (state.mascota?.tipoMascota ?? 'perro') == 'gato' ? '🐱' : '🐶'; // Puedes cambiar esto por diferentes emojis según el tipo de mascota
-        return Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              AnimatedBuilder(
-                animation: _petAnimationController,
-                builder: (context, child) {
-                  return Transform.translate(
-                    offset: Offset(0, eating ? 0 : _petAnimationController.value * 8),
-                    child: Transform.rotate(
-                      angle: eating ? _petAnimationController.value * 0.1 : 0,
-                      child: child,
-                    ),
-                  );
-                },
-                child: Text(petEmoji, style: const TextStyle(fontSize: 80)),
-              ),
-              const SizedBox(height: 16),
-              // Mensaje de la mascota
-              if (!eating && plateLevel == 0)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.8),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Text(
-                    '¡Tengo hambre! 🤤',
-                    style: TextStyle(fontSize: 16, color: Colors.black87),
-                  ),
-                ),
+    final worldState = context.watch<PetWorldCubit>().state;
+    final canShowPet =
+        !worldState.isLocationLocked ||
+        worldState.location == PetLocation.alimentar;
+    if (!canShowPet) return const SizedBox.shrink();
 
-              if (eating)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.8),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Text(
-                    '¡Ñam ñam! 😋',
-                    style: TextStyle(fontSize: 16, color: Colors.black87),
-                  ),
+    return BlocBuilder<PetCubit, PetState>(
+      builder: (context, state) {
+        final petEmoji = (state.mascota?.tipoMascota ?? 'perro') == 'gato'
+            ? '🐱'
+            : '🐶';
+        final headItemEmoji = CosmeticCatalog.headEmojiFor(
+          state.mascota?.itemCabezaId,
+        );
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxHeight < 220;
+            final veryCompact = constraints.maxHeight < 180;
+            final petSize = compact ? 68.0 : 80.0;
+            final hatSize = compact ? 24.0 : 28.0;
+            final gap = compact ? 8.0 : 16.0;
+            final bubbleText = eating
+                ? 'Estoy comiendo'
+                : (plateLevel == 0 ? 'Tengo hambre' : null);
+
+            return SizedBox(
+              width: constraints.maxWidth,
+              height: constraints.maxHeight,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.center,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AnimatedBuilder(
+                      animation: _petAnimationController,
+                      builder: (context, child) {
+                        return Transform.translate(
+                          offset: Offset(
+                            0,
+                            eating ? 0 : _petAnimationController.value * 8,
+                          ),
+                          child: Transform.rotate(
+                            angle: eating
+                                ? _petAnimationController.value * 0.1
+                                : 0,
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        alignment: Alignment.center,
+                        children: [
+                          Text(petEmoji, style: TextStyle(fontSize: petSize)),
+                          if (headItemEmoji != null)
+                            Positioned(
+                              top: compact ? -8 : -10,
+                              child: Text(
+                                headItemEmoji,
+                                style: TextStyle(fontSize: hatSize),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    if (bubbleText != null && !veryCompact)
+                      SizedBox(height: gap),
+                    if (bubbleText != null && !veryCompact)
+                      _bubbleText(
+                        bubbleText,
+                        fontSize: compact ? 14 : 16,
+                        horizontalPadding: compact ? 16 : 24,
+                        verticalPadding: compact ? 6 : 8,
+                      ),
+                  ],
                 ),
-            ],
-          ),
+              ),
+            );
+          },
         );
       },
     );
   }
 
-  /// Plato de comida
+  Widget _bubbleText(
+    String text, {
+    double fontSize = 16,
+    double horizontalPadding = 24,
+    double verticalPadding = 8,
+  }) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: horizontalPadding,
+        vertical: verticalPadding,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(fontSize: fontSize, color: Colors.black87),
+      ),
+    );
+  }
+
   Widget _buildPlate() {
+    final estadoDescanso = context.select(
+      (PetCubit cubit) => cubit.state.mascota?.estadoDescanso ?? 'despierto',
+    );
+    final estaDescansando =
+        estadoDescanso == 'dormido' ||
+        estadoDescanso == 'acostado' ||
+        estadoDescanso == 'siesta';
+
     return Column(
       children: [
-        // Botón "¡Que coma!"
-        if (plateLevel > 0 && !eating)
+        if (plateLevel > 0 && !estaDescansando)
           Padding(
             padding: const EdgeInsets.only(bottom: 16),
             child: ElevatedButton(
-              onPressed: handleFeedPet,
+              onPressed: eating ? _detenerComidaManual : handleFeedPet,
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFa3ff88),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                backgroundColor: eating
+                    ? const Color(0xFFF07A94)
+                    : const Color(0xFFA3FF88),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(20),
                 ),
               ),
-              child: const Text(
-                '¡Que coma! 🍽️',
-                style: TextStyle(
+              child: Text(
+                eating ? 'Detener comida' : 'Que coma',
+                style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
                   color: Colors.white,
@@ -759,8 +1213,6 @@ with SingleTickerProviderStateMixin {
               ),
             ),
           ),
-
-        // Plato
         Container(
           width: 180,
           height: 90,
@@ -768,7 +1220,7 @@ with SingleTickerProviderStateMixin {
             gradient: const LinearGradient(
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
-              colors: [Colors.white, Color(0xFFf5f5f5)],
+              colors: [Colors.white, Color(0xFFF5F5F5)],
             ),
             borderRadius: const BorderRadius.all(Radius.elliptical(90, 45)),
             border: Border.all(color: Colors.grey[400]!, width: 4),
@@ -782,13 +1234,14 @@ with SingleTickerProviderStateMixin {
           ),
           child: Stack(
             children: [
-              // Nivel de llenado
               Positioned(
                 bottom: 0,
                 left: 0,
                 right: 0,
                 child: ClipRRect(
-                  borderRadius: const BorderRadius.all(Radius.elliptical(90, 45)),
+                  borderRadius: const BorderRadius.all(
+                    Radius.elliptical(90, 45),
+                  ),
                   child: Container(
                     height: 90 * (plateLevel / 100),
                     decoration: BoxDecoration(
@@ -796,7 +1249,7 @@ with SingleTickerProviderStateMixin {
                         begin: Alignment.bottomCenter,
                         end: Alignment.topCenter,
                         colors: [
-                          const Color(0xFF8ae670).withValues(alpha: 0.4),
+                          const Color(0xFF8AE670).withValues(alpha: 0.4),
                           Colors.transparent,
                         ],
                       ),
@@ -804,22 +1257,26 @@ with SingleTickerProviderStateMixin {
                   ),
                 ),
               ),
-
-              // Comida en el plato
               Positioned.fill(
                 child: Align(
                   alignment: Alignment.bottomCenter,
                   child: Padding(
-                    padding: const EdgeInsets.only(top: 10, left: 20, right: 20),
+                    padding: const EdgeInsets.only(
+                      top: 10,
+                      left: 20,
+                      right: 20,
+                    ),
                     child: Wrap(
                       spacing: 4,
                       runSpacing: -10,
                       alignment: WrapAlignment.center,
                       children: foodInPlate
-                          .map((emoji) => Text(
-                                emoji,
-                                style: const TextStyle(fontSize: 26),
-                              ))
+                          .map(
+                            (emoji) => Text(
+                              emoji,
+                              style: const TextStyle(fontSize: 26),
+                            ),
+                          )
                           .toList(),
                     ),
                   ),
@@ -852,54 +1309,47 @@ with SingleTickerProviderStateMixin {
 
   /// Bolsa arrastrable
   Widget _buildDraggableBag(BuildContext context) {
+    final bag = activeBag;
+    if (bag == null) return const SizedBox.shrink();
     return Draggable(
-      // Pasamos el context a nuestra función responsiva
       feedback: Material(
-        color: Colors.transparent, // Evita un fondo blanco feo al arrastrar
-        child: _buildBagWidget(context, activeBag!, isDragging: true),
+        color: Colors.transparent,
+        child: _buildBagWidget(context, bag, isDragging: true),
       ),
       childWhenDragging: Container(),
       onDragUpdate: (details) {
-        // Detectar si está sobre el plato
         final screenHeight = MediaQuery.of(context).size.height;
         final plateAreaY = screenHeight * 0.75;
-
         if (details.globalPosition.dy > plateAreaY - 50) {
           startPouring();
         } else {
           stopPouring();
         }
       },
-      onDragEnd: (details) {
-        stopPouring();
-      },
-      // Pasamos el context aquí también
-      child: _buildBagWidget(context, activeBag!),
+      onDragEnd: (_) => stopPouring(),
+      child: _buildBagWidget(context, bag),
     );
   }
 
-  /// Widget de la bolsa (Responsivo)
-  Widget _buildBagWidget(BuildContext context, FoodItem food, {bool isDragging = false}) {
-    // Calculamos el tamaño basado en la pantalla. 
-    // Usamos clamp para asegurar un tamaño mínimo y máximo razonable.
+  Widget _buildBagWidget(
+    BuildContext context,
+    FoodCatalogItem food, {
+    bool isDragging = false,
+  }) {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
-    
     final double bagWidth = (screenWidth * 0.28).clamp(80.0, 110.0);
     final double bagHeight = (screenHeight * 0.16).clamp(100.0, 140.0);
 
     return Container(
       width: bagWidth,
       height: bagHeight,
-      padding: const EdgeInsets.all(8.0), // Damos un margen interno
+      padding: const EdgeInsets.all(8.0),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            food.color,
-            food.color.withValues(alpha: 0.8),
-          ],
+          colors: [food.color, food.color.withValues(alpha: 0.8)],
         ),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: food.color, width: 4),
@@ -918,10 +1368,7 @@ with SingleTickerProviderStateMixin {
           Expanded(
             child: FittedBox(
               fit: BoxFit.contain,
-              child: Text(
-                food.emoji,
-                style: const TextStyle(fontSize: 48), // Tamaño base
-              ),
+              child: Text(food.emoji, style: const TextStyle(fontSize: 48)),
             ),
           ),
           const SizedBox(height: 4),
@@ -944,13 +1391,16 @@ with SingleTickerProviderStateMixin {
 
   // Si la mascota es traviesa/juguetona, muestra las piezas de comida tiradas por la pantalla
   Widget _buildComidaTirada() {
-    if (!_misionTraviesaActiva || _comidaTirada.isEmpty) return const SizedBox.shrink();
+    if (!_misionTraviesaActiva || _comidaTirada.isEmpty) {
+      return const SizedBox.shrink();
+    }
 
     return Stack(
       children: [
-        // Overlay semi-transparente con mensaje
         Positioned(
-          top: 80, left: 0, right: 0,
+          top: 80,
+          left: 0,
+          right: 0,
           child: Center(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -959,30 +1409,31 @@ with SingleTickerProviderStateMixin {
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Text(
-                '¡Recoge la comida! ${_comidaTirada.length} piezas 🧹',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                'Recoge la comida: ${_comidaTirada.length} piezas',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
               ),
             ),
           ),
         ),
-        // Piezas de comida tiradas
         ..._comidaTirada.asMap().entries.map((entry) {
           final index = entry.key;
-          final pos   = entry.value;
+          final pos = entry.value;
           return Positioned(
             left: pos.dx,
-            top:  pos.dy,
+            top: pos.dy,
             child: GestureDetector(
               onTap: () => _recogerComida(index),
               child: TweenAnimationBuilder<double>(
                 tween: Tween(begin: 0.0, end: 1.0),
                 duration: const Duration(milliseconds: 400),
                 curve: Curves.elasticOut,
-                builder: (context, val, child) => Transform.scale(scale: val, child: child),
-                child: Text(
-                  activeBag?.emoji ?? '🥩',
-                  style: const TextStyle(fontSize: 36),
-                ),
+                builder: (context, value, child) =>
+                    Transform.scale(scale: value, child: child),
+                child: Text(_plateEmoji, style: const TextStyle(fontSize: 36)),
               ),
             ),
           );
@@ -997,7 +1448,7 @@ class TilePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = const Color(0xFF8b7355)
+      ..color = const Color(0xFF8B7355)
       ..strokeWidth = 1
       ..style = PaintingStyle.stroke;
 

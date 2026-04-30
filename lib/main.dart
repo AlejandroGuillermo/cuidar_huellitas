@@ -14,7 +14,9 @@ import 'cubit/pet_state.dart';
 import 'data/repositories/disaster_repository.dart';
 import 'data/repositories/mission_repository.dart';
 import 'data/repositories/world_repository.dart';
+import 'domain/entities/pending_mission.dart';
 import 'domain/enums/pet_activity.dart';
+import 'domain/enums/mission_kind.dart';
 import 'domain/enums/pet_location.dart';
 import 'firebase_options.dart';
 
@@ -26,6 +28,10 @@ void main() async {
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
+  static final GlobalKey<ScaffoldMessengerState> _messengerKey =
+      GlobalKey<ScaffoldMessengerState>();
+  static bool _missionNotificationsReady = false;
+  static Set<String> _knownMissionIds = <String>{};
 
   @override
   Widget build(BuildContext context) {
@@ -65,11 +71,29 @@ class MyApp extends StatelessWidget {
             listener: (context, state) async {
               final mascota = state.mascota;
               if (mascota == null) return;
+              final petCubit = context.read<PetCubit>();
               final petWorldCubit = context.read<PetWorldCubit>();
               final missionCubit = context.read<MissionCubit>();
               final disasterCubit = context.read<DisasterCubit>();
 
-              await petWorldCubit.bootstrap(mascota);
+              await petWorldCubit.bootstrap(mascota, randomizeIfUnlocked: true);
+
+              final world = petWorldCubit.state;
+              final currentPet = petCubit.state.mascota;
+              if (currentPet != null &&
+                  world.isLocationLocked &&
+                  world.location == PetLocation.alimentar &&
+                  currentPet.nivelPlato > 0 &&
+                  !currentPet.platoComiendo) {
+                await petCubit.iniciarComidaPlato();
+              }
+              if (currentPet != null &&
+                  world.isLocationLocked &&
+                  world.location == PetLocation.dormir &&
+                  !currentPet.estaDescansando) {
+                await petCubit.forzarDescansoOffline(siesta: world.isNapTime);
+              }
+
               await missionCubit.hydrate(mascota.idMascota);
               await disasterCubit.verificarDesastre(mascota.idMascota);
             },
@@ -93,6 +117,8 @@ class MyApp extends StatelessWidget {
                   next: petWorldCubit.state.copyWith(
                     location: PetLocation.dormir,
                     activity: PetActivity.sleeping,
+                    isLocationLocked: true,
+                    isNapTime: mascota.estadoDescanso == 'siesta',
                     clearFood: true,
                     clearToy: true,
                     simulatedAt: DateTime.now(),
@@ -101,13 +127,111 @@ class MyApp extends StatelessWidget {
                 return;
               }
 
-              await petWorldCubit.bootstrap(mascota);
+              if (petWorldCubit.state.isLocationLocked &&
+                  petWorldCubit.state.location == PetLocation.dormir) {
+                await petWorldCubit.updateWorld(
+                  mascota: mascota,
+                  next: petWorldCubit.state.copyWith(
+                    location: PetLocation.dormir,
+                    activity: PetActivity.idle,
+                    isLocationLocked: false,
+                    isNapTime: false,
+                    clearFood: true,
+                    clearToy: true,
+                    simulatedAt: DateTime.now(),
+                  ),
+                );
+              }
+            },
+          ),
+          BlocListener<PetCubit, PetState>(
+            listenWhen: (previous, current) =>
+                previous.mascota?.platoComiendo !=
+                    current.mascota?.platoComiendo ||
+                previous.mascota?.nivelPlato != current.mascota?.nivelPlato,
+            listener: (context, state) async {
+              final mascota = state.mascota;
+              if (mascota == null) return;
+
+              final petWorldCubit = context.read<PetWorldCubit>();
+              if (petWorldCubit.state.isLoading) return;
+
+              if (mascota.platoComiendo && mascota.nivelPlato > 0) {
+                await petWorldCubit.updateWorld(
+                  mascota: mascota,
+                  next: petWorldCubit.state.copyWith(
+                    location: PetLocation.alimentar,
+                    activity: PetActivity.eating,
+                    currentFoodId: mascota.platoAlimentoId.isNotEmpty
+                        ? mascota.platoAlimentoId
+                        : petWorldCubit.state.currentFoodId,
+                    isLocationLocked: true,
+                    isNapTime: false,
+                    clearToy: true,
+                    simulatedAt: DateTime.now(),
+                  ),
+                );
+                return;
+              }
+
+              if (petWorldCubit.state.isLocationLocked &&
+                  petWorldCubit.state.location == PetLocation.alimentar) {
+                await petWorldCubit.updateWorld(
+                  mascota: mascota,
+                  next: petWorldCubit.state.copyWith(
+                    activity: PetActivity.idle,
+                    isLocationLocked: false,
+                    isNapTime: false,
+                    clearFood: true,
+                    simulatedAt: DateTime.now(),
+                  ),
+                );
+              }
+            },
+          ),
+          BlocListener<MissionCubit, MissionState>(
+            listenWhen: (previous, current) =>
+                previous.missions != current.missions ||
+                previous.hasLoadedOnce != current.hasLoadedOnce,
+            listener: (context, state) {
+              if (!state.hasLoadedOnce) {
+                _missionNotificationsReady = false;
+                _knownMissionIds = <String>{};
+                return;
+              }
+
+              final currentIds = state.missions.map((m) => m.id).toSet();
+              if (!_missionNotificationsReady) {
+                _knownMissionIds = currentIds;
+                _missionNotificationsReady = true;
+                return;
+              }
+
+              final nuevas = state.missions
+                  .where((mission) => !_knownMissionIds.contains(mission.id))
+                  .toList();
+              _knownMissionIds = currentIds;
+              if (nuevas.isEmpty) return;
+
+              final message = nuevas.length == 1
+                  ? 'Nueva mision: ${_missionTitle(nuevas.first)}'
+                  : 'Tienes ${nuevas.length} misiones nuevas';
+
+              final messenger = _messengerKey.currentState;
+              messenger?.hideCurrentSnackBar();
+              messenger?.showSnackBar(
+                SnackBar(
+                  content: Text(message),
+                  duration: const Duration(seconds: 3),
+                ),
+              );
             },
           ),
         ],
         child: MaterialApp.router(
           title: 'CuidARHuellitas',
           debugShowCheckedModeBanner: false,
+          scaffoldMessengerKey: _messengerKey,
           theme: ThemeData(
             colorScheme: ColorScheme.fromSeed(
               seedColor: const Color(0xFF8AE670),
@@ -128,7 +252,11 @@ class MyApp extends StatelessWidget {
 
             final mascotaId =
                 context.watch<PetCubit>().state.mascota?.idMascota ?? '';
-            return DisasterOverlay(mascotaId: mascotaId, child: child);
+            return DisasterOverlay(
+              mascotaId: mascotaId,
+              currentPath: currentPath,
+              child: child,
+            );
           },
         ),
       ),
@@ -139,5 +267,18 @@ class MyApp extends StatelessWidget {
     return !(path == AppRoutes.login ||
         path == AppRoutes.register ||
         path == AppRoutes.adopcion);
+  }
+
+  static String _missionTitle(PendingMission mission) {
+    switch (mission.kind) {
+      case MissionKind.recogerComida:
+        return 'Recoge la comida tirada';
+      case MissionKind.recogerJuguete:
+        return 'Recoge los juguetes';
+      case MissionKind.recogerBasura:
+        return 'Limpia la basura';
+      case MissionKind.desconocida:
+        return 'Nueva mision activa';
+    }
   }
 }

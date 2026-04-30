@@ -4,11 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:go_router/go_router.dart';
+import '../application/cubits/pet_world_cubit.dart';
 import '../core/app_colors.dart';
-import '../core/app_router.dart';
 import '../cubit/pet_cubit.dart';
 import '../cubit/pet_state.dart';
+import '../domain/enums/pet_activity.dart';
+import '../domain/enums/pet_location.dart';
 import '../widgets/paw_map_widget.dart';
 import '../widgets/action_screen_header.dart';
 
@@ -26,9 +27,25 @@ class Toy {
     required this.emoji,
     required this.name,
     required this.color,
-    this.afectoBonus  = 15,
+    this.afectoBonus = 15,
     this.energiaCosto = 10,
   });
+}
+
+class _ToyInPlay {
+  final String playId;
+  final Toy toy;
+  final Offset pos;
+
+  const _ToyInPlay({
+    required this.playId,
+    required this.toy,
+    required this.pos,
+  });
+
+  _ToyInPlay copyWith({Offset? pos}) {
+    return _ToyInPlay(playId: playId, toy: toy, pos: pos ?? this.pos);
+  }
 }
 
 // ── Pantalla de Jugar ──────────────────────────────────────
@@ -43,24 +60,67 @@ class _JugarScreenState extends State<JugarScreen>
     with TickerProviderStateMixin {
   // Lista de juguetes disponibles
   final List<Toy> toys = [
-    Toy(id: '1', emoji: '🎾', name: 'Pelota',  color: Color(0xFFa3ff88), afectoBonus: 20, energiaCosto: 12),
-    Toy(id: '2', emoji: '🦴', name: 'Hueso',   color: Color(0xFF8ae670), afectoBonus: 15, energiaCosto: 8),
-    Toy(id: '3', emoji: '🪃', name: 'Frisbee', color: Color(0xFF708be6), afectoBonus: 25, energiaCosto: 15),
-    Toy(id: '4', emoji: '🧸', name: 'Peluche', color: Color(0xFFf07a94), afectoBonus: 10, energiaCosto: 5),
-    Toy(id: '5', emoji: '🪢', name: 'Cuerda',  color: Color(0xFF8aa2ff), afectoBonus: 18, energiaCosto: 10),
-    Toy(id: '6', emoji: '⚽', name: 'Balón',   color: Color(0xFFa3ff88), afectoBonus: 22, energiaCosto: 13),
+    Toy(
+      id: '1',
+      emoji: '🎾',
+      name: 'Pelota',
+      color: Color(0xFFa3ff88),
+      afectoBonus: 20,
+      energiaCosto: 12,
+    ),
+    Toy(
+      id: '2',
+      emoji: '🦴',
+      name: 'Hueso',
+      color: Color(0xFF8ae670),
+      afectoBonus: 15,
+      energiaCosto: 8,
+    ),
+    Toy(
+      id: '3',
+      emoji: '🪃',
+      name: 'Frisbee',
+      color: Color(0xFF708be6),
+      afectoBonus: 25,
+      energiaCosto: 15,
+    ),
+    Toy(
+      id: '4',
+      emoji: '🧸',
+      name: 'Peluche',
+      color: Color(0xFFf07a94),
+      afectoBonus: 10,
+      energiaCosto: 5,
+    ),
+    Toy(
+      id: '5',
+      emoji: '🪢',
+      name: 'Cuerda',
+      color: Color(0xFF8aa2ff),
+      afectoBonus: 18,
+      energiaCosto: 10,
+    ),
+    Toy(
+      id: '6',
+      emoji: '⚽',
+      name: 'Balón',
+      color: Color(0xFFa3ff88),
+      afectoBonus: 22,
+      energiaCosto: 13,
+    ),
   ];
 
   // ── Estado del juego ───────────────────────────────────
-  Toy? _toyActivo;            // juguete en el campo
-  Offset _toyPos = const Offset(180, 200);  // posición del juguete
-  Offset _petPos = const Offset(100, 300);  // posición de la mascota
-  bool _petTieneToy = false;  // el perro alcanzó el juguete
-  //bool _toyEnCaja = false;    // se arrastró a la caja
+  final Random _random = Random();
+  final List<_ToyInPlay> _toysEnCampo = [];
+  String? _toyObjetivoId;
+  String? _toyEnBocaId;
+  Offset _petPos = const Offset(100, 300); // posición de la mascota
   int _jugadas = 0;
   double _progresoQuitar = 0; // barra para quitarle el juguete al perro
-  bool _mostrando = false;    // caja de juguetes abierta
+  bool _mostrando = false; // caja de juguetes abierta
   bool _enCooldown = false;
+  bool _segundoJugueteYaGenerado = false;
 
   // ── Animaciones ────────────────────────────────────────
   late AnimationController _petController;
@@ -72,6 +132,7 @@ class _JugarScreenState extends State<JugarScreen>
   // ── Timer de persecución ───────────────────────────────
   Timer? _chaseTimer;
   Timer? _quitarTimer;
+  Timer? _segundoJugueteTimer;
 
   // ── Posición de la caja ────────────────────────────────
   final Rect _cajaRect = const Rect.fromLTWH(12, 60, 105, 85);
@@ -80,30 +141,134 @@ class _JugarScreenState extends State<JugarScreen>
   List<Offset> particles = [];
 
   // ── Drag offset para transición home ──────────────────
-  final double _dragOffset = 0;
-
   @override
   void initState() {
     super.initState();
 
     _petController = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 600),
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
     )..repeat(reverse: true);
 
     _toyController = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 800),
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
     )..repeat(reverse: true);
 
     _quitarController = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 200),
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
     );
 
-    _petBounce = Tween<double>(begin: 0, end: -8).animate(
-      CurvedAnimation(parent: _petController, curve: Curves.easeInOut),
-    );
+    _petBounce = Tween<double>(
+      begin: 0,
+      end: -8,
+    ).animate(CurvedAnimation(parent: _petController, curve: Curves.easeInOut));
 
-    _toyFloat = Tween<double>(begin: 0, end: -6).animate(
-      CurvedAnimation(parent: _toyController, curve: Curves.easeInOut),
+    _toyFloat = Tween<double>(
+      begin: 0,
+      end: -6,
+    ).animate(CurvedAnimation(parent: _toyController, curve: Curves.easeInOut));
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _syncWorldEntry();
+      _hydrateOfflinePlayFromWorld();
+    });
+  }
+
+  Future<void> _syncWorldEntry() async {
+    if (!mounted) return;
+    final mascota = context.read<PetCubit>().state.mascota;
+    if (mascota == null) return;
+    await context.read<PetWorldCubit>().syncScreenEntry(
+      mascota: mascota,
+      location: PetLocation.jugar,
+      fallbackActivity: PetActivity.idle,
+    );
+  }
+
+  Toy _toyByWorldId(String? rawId) {
+    if (rawId == null || rawId.isEmpty) {
+      return toys[_random.nextInt(toys.length)];
+    }
+
+    final normalized = rawId.toLowerCase();
+    for (final toy in toys) {
+      if (toy.id == rawId || toy.name.toLowerCase() == normalized) {
+        return toy;
+      }
+      if ((normalized == 'pelota' && toy.id == '1') ||
+          (normalized == 'hueso' && toy.id == '2') ||
+          (normalized == 'frisbee' && toy.id == '3') ||
+          (normalized == 'peluche' && toy.id == '4') ||
+          (normalized == 'cuerda' && toy.id == '5') ||
+          (normalized == 'balon' && toy.id == '6')) {
+        return toy;
+      }
+    }
+    return toys[_random.nextInt(toys.length)];
+  }
+
+  void _hydrateOfflinePlayFromWorld() {
+    if (!mounted) return;
+    if (_toyEnBocaId != null) return;
+
+    final world = context.read<PetWorldCubit>().state;
+    if (!world.isLocationLocked ||
+        world.location != PetLocation.jugar ||
+        world.activity != PetActivity.playing) {
+      return;
+    }
+
+    final toy = _toyByWorldId(world.currentToyId);
+    final playId = _nuevoToyPlayId(toy);
+    setState(() {
+      _toysEnCampo
+        ..clear()
+        ..add(_ToyInPlay(playId: playId, toy: toy, pos: _petPos));
+      _toyEnBocaId = playId;
+      _toyObjetivoId = null;
+      _mostrando = false;
+      _progresoQuitar = 0;
+      _segundoJugueteYaGenerado = true;
+    });
+  }
+
+  Future<void> _anchorPlayState(String toyId) async {
+    final mascota = context.read<PetCubit>().state.mascota;
+    if (mascota == null) return;
+    final worldCubit = context.read<PetWorldCubit>();
+    await worldCubit.updateWorld(
+      mascota: mascota,
+      next: worldCubit.state.copyWith(
+        location: PetLocation.jugar,
+        activity: PetActivity.playing,
+        currentToyId: toyId,
+        clearFood: true,
+        isLocationLocked: true,
+        isNapTime: false,
+        simulatedAt: DateTime.now(),
+      ),
+    );
+  }
+
+  Future<void> _releasePlayLock() async {
+    final mascota = context.read<PetCubit>().state.mascota;
+    if (mascota == null) return;
+    final worldCubit = context.read<PetWorldCubit>();
+    if (!(worldCubit.state.isLocationLocked &&
+        worldCubit.state.location == PetLocation.jugar)) {
+      return;
+    }
+    await worldCubit.updateWorld(
+      mascota: mascota,
+      next: worldCubit.state.copyWith(
+        activity: PetActivity.idle,
+        clearToy: true,
+        isLocationLocked: false,
+        isNapTime: false,
+        simulatedAt: DateTime.now(),
+      ),
     );
   }
 
@@ -114,17 +279,128 @@ class _JugarScreenState extends State<JugarScreen>
     _quitarController.dispose();
     _chaseTimer?.cancel();
     _quitarTimer?.cancel();
+    _segundoJugueteTimer?.cancel();
     super.dispose();
   }
 
   // --- MÉTODOS DE LA MASCOTA ---
 
+  String _nuevoToyPlayId(Toy toy) {
+    return '${toy.id}_${DateTime.now().microsecondsSinceEpoch}_${_random.nextInt(99999)}';
+  }
+
+  int _indexToy(String playId) {
+    return _toysEnCampo.indexWhere((t) => t.playId == playId);
+  }
+
+  _ToyInPlay? _toyEnCampoPorId(String? playId) {
+    if (playId == null) return null;
+    final index = _indexToy(playId);
+    if (index == -1) return null;
+    return _toysEnCampo[index];
+  }
+
+  void _actualizarToyPosicion(String playId, Offset nuevaPos) {
+    final index = _indexToy(playId);
+    if (index == -1) return;
+    _toysEnCampo[index] = _toysEnCampo[index].copyWith(pos: nuevaPos);
+  }
+
+  bool _esRasgoConSegundoJuguete(String rasgo) {
+    final normalizado = rasgo.toLowerCase();
+    return normalizado.contains('juguet') || normalizado.contains('travieso');
+  }
+
+  void _programarSegundoJugueteSiAplica() {
+    _segundoJugueteTimer?.cancel();
+    if (_segundoJugueteYaGenerado || _toysEnCampo.length != 1) return;
+
+    final rasgo = context.read<PetCubit>().state.mascota?.rasgo ?? '';
+    if (!_esRasgoConSegundoJuguete(rasgo)) return;
+
+    final retraso = Duration(seconds: 6 + _random.nextInt(8));
+    _segundoJugueteTimer = Timer(retraso, _generarSegundoJuguete);
+  }
+
+  void _generarSegundoJuguete() {
+    if (!mounted || _segundoJugueteYaGenerado || _toysEnCampo.length != 1) {
+      return;
+    }
+
+    final idsActivos = _toysEnCampo.map((t) => t.toy.id).toSet();
+    final candidatos = toys
+        .where((toy) => !idsActivos.contains(toy.id))
+        .toList();
+    if (candidatos.isEmpty) return;
+
+    final toy = candidatos[_random.nextInt(candidatos.length)];
+    final size = MediaQuery.of(context).size;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _hydrateOfflinePlayFromWorld();
+    });
+    final x = (_cajaRect.right + 35 + (_random.nextDouble() * 60)).clamp(
+      20.0,
+      size.width - 60.0,
+    );
+    final y = (_cajaRect.bottom + 40 + (_random.nextDouble() * 60)).clamp(
+      100.0,
+      size.height - 200.0,
+    );
+
+    setState(() {
+      _toysEnCampo.add(
+        _ToyInPlay(playId: _nuevoToyPlayId(toy), toy: toy, pos: Offset(x, y)),
+      );
+      _segundoJugueteYaGenerado = true;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Tu mascota sacó otro juguete. Puedes guardar cualquiera en la caja.',
+        ),
+        duration: Duration(milliseconds: 1600),
+      ),
+    );
+
+    if (_toyEnBocaId == null) {
+      _iniciarPersecucion();
+    }
+  }
+
+  _ToyInPlay? _objetivoActual() {
+    final libres = _toysEnCampo.where((t) => t.playId != _toyEnBocaId).toList();
+    if (libres.isEmpty) return null;
+
+    final objetivoPrevio = _toyEnCampoPorId(_toyObjetivoId);
+    if (objetivoPrevio != null && objetivoPrevio.playId != _toyEnBocaId) {
+      return objetivoPrevio;
+    }
+
+    libres.sort((a, b) {
+      final da = (a.pos - _petPos).distanceSquared;
+      final db = (b.pos - _petPos).distanceSquared;
+      return da.compareTo(db);
+    });
+    return libres.first;
+  }
+
   // ── Seleccionar juguete de la caja ─────────────────────
   void _seleccionarJuguete(Toy toy) {
+    _segundoJugueteTimer?.cancel();
     setState(() {
-      _toyActivo = toy;
-      _toyPos = const Offset(180, 220);
-      _petTieneToy = false;
+      _toysEnCampo
+        ..clear()
+        ..add(
+          _ToyInPlay(
+            playId: _nuevoToyPlayId(toy),
+            toy: toy,
+            pos: const Offset(180, 220),
+          ),
+        );
+      _toyObjetivoId = _toysEnCampo.first.playId;
+      _toyEnBocaId = null;
+      _segundoJugueteYaGenerado = false;
       _progresoQuitar = 0;
       _mostrando = false;
     });
@@ -136,13 +412,24 @@ class _JugarScreenState extends State<JugarScreen>
     if (_enCooldown) return;
     _chaseTimer?.cancel();
     _chaseTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
-      if (!mounted || _toyActivo == null || _petTieneToy) {
+      if (!mounted || _toyEnBocaId != null) {
         timer.cancel();
         return;
       }
 
-      final dx = _toyPos.dx - _petPos.dx;
-      final dy = _toyPos.dy - _petPos.dy;
+      final objetivo = _objetivoActual();
+      if (objetivo == null) {
+        timer.cancel();
+        setState(() => _toyObjetivoId = null);
+        return;
+      }
+
+      if (_toyObjetivoId != objetivo.playId) {
+        setState(() => _toyObjetivoId = objetivo.playId);
+      }
+
+      final dx = objetivo.pos.dx - _petPos.dx;
+      final dy = objetivo.pos.dy - _petPos.dy;
       final dist = sqrt(dx * dx + dy * dy);
 
       // Velocidad de persecución
@@ -151,7 +438,12 @@ class _JugarScreenState extends State<JugarScreen>
       if (dist < 50) {
         // ¡Alcanzó el juguete!
         timer.cancel();
-        setState(() => _petTieneToy = true);
+        setState(() {
+          _toyEnBocaId = objetivo.playId;
+          _toyObjetivoId = null;
+          _jugadas++;
+          _actualizarToyPosicion(objetivo.playId, _petPos);
+        });
         _onPetAlcanzaJuguete();
         return;
       }
@@ -167,50 +459,90 @@ class _JugarScreenState extends State<JugarScreen>
 
   // ── El perro alcanzó el juguete ────────────────────────
   void _onPetAlcanzaJuguete() {
-    setState(() {
-      _jugadas++;
-      _toyPos = _petPos; // el juguete va donde está el perro
-    });
+    _programarSegundoJugueteSiAplica();
+    final toyEnBoca = _toyEnCampoPorId(_toyEnBocaId);
+    if (toyEnBoca != null) {
+      _anchorPlayState(toyEnBoca.toy.id);
+    }
     // Vibración haptica leve (opcional)
   }
 
   // ── Mover el juguete al arrastrar ──────────────────────
-  void _onToyDragUpdate(DragUpdateDetails details) {
-    if (_petTieneToy) return; // no se puede mover si el perro lo tiene
+  void _onToyDragUpdate(String playId, DragUpdateDetails details) {
+    if (_toyEnBocaId == playId) {
+      return; // no se puede mover si el perro lo tiene
+    }
+    final toy = _toyEnCampoPorId(playId);
+    if (toy == null) return;
+
     setState(() {
-      _toyPos = Offset(
-        (_toyPos.dx + details.delta.dx).clamp(20, MediaQuery.of(context).size.width  - 60),
-        (_toyPos.dy + details.delta.dy).clamp(100, MediaQuery.of(context).size.height - 200),
+      _actualizarToyPosicion(
+        playId,
+        Offset(
+          (toy.pos.dx + details.delta.dx).clamp(
+            20,
+            MediaQuery.of(context).size.width - 60,
+          ),
+          (toy.pos.dy + details.delta.dy).clamp(
+            100,
+            MediaQuery.of(context).size.height - 200,
+          ),
+        ),
       );
     });
   }
 
-  void _onToyDragEnd(DragEndDetails details) {
+  void _onToyDragEnd(String playId, DragEndDetails details) {
+    final toy = _toyEnCampoPorId(playId);
+    if (toy == null) return;
+
     // Verificar si se soltó en la caja
-    if (_cajaRect.contains(_toyPos)) {
-      _guardarJugueteEnCaja();
+    if (_cajaRect.contains(toy.pos)) {
+      _guardarJugueteEnCaja(playId);
+      return;
+    }
+
+    if (_toyEnBocaId == null) {
+      _iniciarPersecucion();
     }
   }
 
   // ── Guardar juguete en la caja ─────────────────────────
-  void _guardarJugueteEnCaja() {
-    final toy = _toyActivo;
-    if (toy == null) return;
+  void _guardarJugueteEnCaja(String playId) {
+    final toyInPlay = _toyEnCampoPorId(playId);
+    if (toyInPlay == null) return;
+    final removingFromMouth = _toyEnBocaId == playId;
 
     setState(() {
-      _toyActivo = null;
-      _petTieneToy = false;
+      _toysEnCampo.removeWhere((t) => t.playId == playId);
+      if (_toyEnBocaId == playId) {
+        _toyEnBocaId = null;
+      }
+      if (_toyObjetivoId == playId) {
+        _toyObjetivoId = null;
+      }
       _progresoQuitar = 0;
+      if (_toysEnCampo.isEmpty) {
+        _segundoJugueteYaGenerado = false;
+        _segundoJugueteTimer?.cancel();
+      }
     });
     _chaseTimer?.cancel();
+    if (removingFromMouth) {
+      _releasePlayLock();
+    }
 
     // Guardar jugada en Firestore
-    _guardarJugadaEnFirestore(toy, completada: true);
+    _guardarJugadaEnFirestore(toyInPlay.toy, completada: true);
+
+    if (_toysEnCampo.isNotEmpty && _toyEnBocaId == null) {
+      _iniciarPersecucion();
+    }
   }
 
   // ── Mantener presionado para quitar ───────────────────
   void _onPetLongPressStart(LongPressStartDetails _) {
-    if (!_petTieneToy) return;
+    if (_toyEnBocaId == null) return;
     _quitarTimer = Timer.periodic(const Duration(milliseconds: 80), (timer) {
       setState(() {
         _progresoQuitar = (_progresoQuitar + 0.04).clamp(0, 1);
@@ -228,28 +560,30 @@ class _JugarScreenState extends State<JugarScreen>
   }
 
   void _quitarJuguete() {
-    final toy = _toyActivo;
-    if (toy == null) return;
+    final toyEnBoca = _toyEnCampoPorId(_toyEnBocaId);
+    if (toyEnBoca == null) return;
 
     // El niño le quitó el juguete → registrar jugada
     context.read<PetCubit>().jugar(
-      afectoBonus:  toy.afectoBonus,
-      energiaCosto: toy.energiaCosto,
+      afectoBonus: toyEnBoca.toy.afectoBonus,
+      energiaCosto: toyEnBoca.toy.energiaCosto,
     );
 
     setState(() {
-      _petTieneToy = false;
+      _toyEnBocaId = null;
       _progresoQuitar = 0;
       _enCooldown = true;
-      _toyPos = Offset(
-        _petPos.dx + 60,
-        _petPos.dy - 30,
+      _actualizarToyPosicion(
+        toyEnBoca.playId,
+        Offset(_petPos.dx + 60, _petPos.dy - 30),
       );
+      _toyObjetivoId = toyEnBoca.playId;
     });
+    _releasePlayLock();
 
-    _guardarJugadaEnFirestore(toy, completada: true);
+    _guardarJugadaEnFirestore(toyEnBoca.toy, completada: true);
     Future.delayed(const Duration(milliseconds: 1000), () {
-    if (!mounted) return;
+      if (!mounted) return;
 
       setState(() {
         _enCooldown = false;
@@ -260,30 +594,35 @@ class _JugarScreenState extends State<JugarScreen>
   }
 
   // ── Guardar en Firestore ───────────────────────────────
-  Future<void> _guardarJugadaEnFirestore(Toy toy, {required bool completada}) async {
+  Future<void> _guardarJugadaEnFirestore(
+    Toy toy, {
+    required bool completada,
+  }) async {
     try {
-      final userId    = FirebaseAuth.instance.currentUser?.uid;
+      final userId = FirebaseAuth.instance.currentUser?.uid;
       final mascotaId = context.read<PetCubit>().state.mascota?.idMascota;
       if (userId == null || mascotaId == null) return;
 
       final mascotaRef = FirebaseFirestore.instance
-          .collection('usuarios').doc(userId)
-          .collection('mascotas').doc(mascotaId);
+          .collection('usuarios')
+          .doc(userId)
+          .collection('mascotas')
+          .doc(mascotaId);
 
       final ahora = DateTime.now();
-      final antes  = context.read<PetCubit>().state.mascota!.nivelesMap;
+      final antes = context.read<PetCubit>().state.mascota!.nivelesMap;
 
       // Registro para el Motor de IA
       await mascotaRef.collection('progreso').add({
-        'id_mision':           'jugar',
-        'accion_realizada':    'jugar',
-        'juguete':             toy.emoji,
-        'hora_dia':            ahora.hour + (ahora.minute / 60.0),
+        'id_mision': 'jugar',
+        'accion_realizada': 'jugar',
+        'juguete': toy.emoji,
+        'hora_dia': ahora.hour + (ahora.minute / 60.0),
         'fecha_actualizacion': Timestamp.now(),
-        'estado_antes':        antes,
+        'estado_antes': antes,
         'estado_despues': {
           ...antes,
-          'afecto':  (antes['afecto']  ?? 0) + toy.afectoBonus,
+          'afecto': (antes['afecto'] ?? 0) + toy.afectoBonus,
           'energia': (antes['energia'] ?? 0) - toy.energiaCosto,
         },
         'jugadas_sesion': _jugadas,
@@ -292,7 +631,6 @@ class _JugarScreenState extends State<JugarScreen>
 
       // Actualizar misión activa si existe
       await mascotaRef.update({'ultima_interaccion': Timestamp.now()});
-
     } catch (e) {
       debugPrint('Error guardando jugada: $e');
     }
@@ -301,22 +639,24 @@ class _JugarScreenState extends State<JugarScreen>
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    
+
     // 1. Envolvemos en PopScope para bloquear el botón físico de 'Atrás' en Android o el swipe nativo de iOS
     return PopScope(
-      canPop: false, 
+      canPop: false,
       child: Scaffold(
         floatingActionButton: FloatingActionButton(
           onPressed: () => mostrarMapaHuella(context),
           backgroundColor: AppColors.verdeFondo, // Usa tu AppColors.verdeFondo
           elevation: 8,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-          child: const Text('🐾', style: TextStyle(fontSize: 28)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(30),
+          ),
+          child: const Icon(Icons.pets, color: AppColors.azulPrincipal, size: 28),
         ),
-        
-        // 2. Quitamos el GestureDetector, el Stack y el Transform. 
+
+        // 2. Quitamos el GestureDetector, el Stack y el Transform.
         // Solo llamamos directamente a tu pantalla de juego.
-        body: _buildGameScreen(size), 
+        body: _buildGameScreen(size),
       ),
     );
   }
@@ -339,13 +679,13 @@ class _JugarScreenState extends State<JugarScreen>
             child: Column(
               children: [
                 ActionScreenHeader(
-                icon: Icons.toys,
-                title: 'Área de Juegos',
-                subtitlePrefix: 'Hora de jugar con',
-                statLabel: 'Energía:',
-                statSelector: (mascota) => mascota.nivelEnergia,
-                barColors: const [Color(0xFFF0A77A), Color(0xFFFF8C42)],
-              ),
+                  icon: Icons.toys,
+                  title: 'Área de Juegos',
+                  subtitlePrefix: 'Hora de jugar con',
+                  statLabel: 'Energía:',
+                  statSelector: (mascota) => mascota.nivelEnergia,
+                  barColors: const [Color(0xFFF0A77A), Color(0xFFFF8C42)],
+                ),
                 Expanded(child: _buildPlayArea(size)),
               ],
             ),
@@ -357,6 +697,25 @@ class _JugarScreenState extends State<JugarScreen>
 
   // ── Área de juego ──────────────────────────────────────
   Widget _buildPlayArea(Size size) {
+    final worldState = context.watch<PetWorldCubit>().state;
+    final canShowPet =
+        !worldState.isLocationLocked ||
+        worldState.location == PetLocation.jugar;
+
+    if (!canShowPet) {
+      return const Center(
+        child: Text(
+          'Tu mascota esta ocupada en otra pantalla.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF3D4D75),
+          ),
+        ),
+      );
+    }
+
     return Stack(
       children: [
         // Caja de juguetes
@@ -364,46 +723,67 @@ class _JugarScreenState extends State<JugarScreen>
 
         // Contador de jugadas
         Positioned(
-          top: 12, right: 12,
+          top: 12,
+          right: 12,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.9),
               borderRadius: BorderRadius.circular(16),
             ),
-            child: Text('Jugadas: $_jugadas',
-                style: const TextStyle(fontSize: 12, color: Color(0xFF708be6), fontWeight: FontWeight.bold)),
-          ),
-        ),
-
-        // Juguete arrastrable
-        if (_toyActivo != null && !_petTieneToy)
-          Positioned(
-            left: _toyPos.dx - 24,
-            top:  _toyPos.dy - 24,
-            child: GestureDetector(
-              onPanUpdate: _onToyDragUpdate,
-              onPanEnd:    _onToyDragEnd,
-              child: AnimatedBuilder(
-                animation: _toyFloat,
-                builder: (context, child) => Transform.translate(
-                  offset: Offset(0, _toyFloat.value),
-                  child: child,
-                ),
-                child: Text(_toyActivo!.emoji,
-                    style: const TextStyle(fontSize: 44,
-                        shadows: [Shadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 4))])),
+            child: Text(
+              'Jugadas: $_jugadas',
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF708be6),
+                fontWeight: FontWeight.bold,
               ),
             ),
           ),
+        ),
+
+        // Juguetes arrastrables (puede haber más de uno afuera)
+        ..._toysEnCampo
+            .where((toy) => toy.playId != _toyEnBocaId)
+            .map(
+              (toy) => Positioned(
+                left: toy.pos.dx - 24,
+                top: toy.pos.dy - 24,
+                child: GestureDetector(
+                  onPanUpdate: (details) =>
+                      _onToyDragUpdate(toy.playId, details),
+                  onPanEnd: (details) => _onToyDragEnd(toy.playId, details),
+                  child: AnimatedBuilder(
+                    animation: _toyFloat,
+                    builder: (context, child) => Transform.translate(
+                      offset: Offset(0, _toyFloat.value),
+                      child: child,
+                    ),
+                    child: Text(
+                      toy.toy.emoji,
+                      style: const TextStyle(
+                        fontSize: 44,
+                        shadows: [
+                          Shadow(
+                            color: Colors.black26,
+                            blurRadius: 8,
+                            offset: Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
 
         // Mascota con GestureDetector para quitar juguete
         Positioned(
           left: _petPos.dx - 36,
-          top:  _petPos.dy - 36,
+          top: _petPos.dy - 36,
           child: GestureDetector(
             onLongPressStart: _onPetLongPressStart,
-            onLongPressEnd:   _onPetLongPressEnd,
+            onLongPressEnd: _onPetLongPressEnd,
             child: AnimatedBuilder(
               animation: _petBounce,
               builder: (context, child) => Transform.translate(
@@ -415,15 +795,23 @@ class _JugarScreenState extends State<JugarScreen>
                 children: [
                   BlocBuilder<PetCubit, PetState>(
                     builder: (context, state) {
-                      final emoji = (state.mascota?.tipoMascota ?? 'perro') == 'gato' ? '🐱' : '🐶';
+                      final emoji =
+                          (state.mascota?.tipoMascota ?? 'perro') == 'gato'
+                          ? '🐱'
+                          : '🐶';
                       return Text(emoji, style: const TextStyle(fontSize: 72));
                     },
                   ),
-                  // Juguete encima si el perro lo tiene
-                  if (_petTieneToy && _toyActivo != null)
+                  // Juguete encima si la mascota lo tiene
+                  if (_toyEnBocaId != null &&
+                      _toyEnCampoPorId(_toyEnBocaId) != null)
                     Positioned(
-                      top: -10, right: -10,
-                      child: Text(_toyActivo!.emoji, style: const TextStyle(fontSize: 28)),
+                      top: -10,
+                      right: -10,
+                      child: Text(
+                        _toyEnCampoPorId(_toyEnBocaId)!.toy.emoji,
+                        style: const TextStyle(fontSize: 28),
+                      ),
                     ),
                 ],
               ),
@@ -432,10 +820,10 @@ class _JugarScreenState extends State<JugarScreen>
         ),
 
         // Letrero y barra "quitar" cuando el perro tiene el juguete
-        if (_petTieneToy && _progresoQuitar > 0)
+        if (_toyEnBocaId != null && _progresoQuitar > 0)
           Positioned(
             left: _petPos.dx - 80,
-            top:  _petPos.dy - 80,
+            top: _petPos.dy - 80,
             child: Container(
               width: 160,
               padding: const EdgeInsets.all(10),
@@ -447,10 +835,18 @@ class _JugarScreenState extends State<JugarScreen>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('¡Mantén presionado!',
-                      style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                  const Text('para quitarle el juguete',
-                      style: TextStyle(color: Color(0xFFFBEAF0), fontSize: 10)),
+                  const Text(
+                    '¡Mantén presionado!',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Text(
+                    'para quitarle el juguete',
+                    style: TextStyle(color: Color(0xFFFBEAF0), fontSize: 10),
+                  ),
                   const SizedBox(height: 6),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(6),
@@ -467,7 +863,7 @@ class _JugarScreenState extends State<JugarScreen>
           ),
 
         // Mensaje si no hay juguete activo
-        if (_toyActivo == null)
+        if (_toysEnCampo.isEmpty)
           Center(
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 20),
@@ -480,9 +876,15 @@ class _JugarScreenState extends State<JugarScreen>
                 children: [
                   const Text('🎁', style: TextStyle(fontSize: 44)),
                   const SizedBox(height: 10),
-                  const Text('¡Elige un juguete\nde la caja!',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF708be6))),
+                  const Text(
+                    '¡Elige un juguete\nde la caja!',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF708be6),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -490,7 +892,9 @@ class _JugarScreenState extends State<JugarScreen>
 
         // Barra de progreso de juego
         Positioned(
-          bottom: 12, left: 12, right: 12,
+          bottom: 12,
+          left: 12,
+          right: 12,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
@@ -500,8 +904,13 @@ class _JugarScreenState extends State<JugarScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Diversión — ${(_jugadas * 10).clamp(0, 100)}%',
-                    style: const TextStyle(fontSize: 10, color: AppColors.textoSecundario)),
+                Text(
+                  'Diversión — ${(_jugadas * 10).clamp(0, 100)}%',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: AppColors.textoSecundario,
+                  ),
+                ),
                 const SizedBox(height: 4),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(6),
@@ -526,28 +935,42 @@ class _JugarScreenState extends State<JugarScreen>
   // ── Selector de juguetes ───────────────────────────────
   Widget _buildToySelector() {
     return Positioned(
-      left: 12, top: 155,
+      left: 12,
+      top: 155,
       child: Container(
         width: 220,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: const Color(0xFF5a70b8),
           borderRadius: BorderRadius.circular(16),
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 12)],
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.3),
+              blurRadius: 12,
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Elige un juguete',
-                style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+            const Text(
+              'Elige un juguete',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             const SizedBox(height: 8),
             Wrap(
-              spacing: 8, runSpacing: 8,
+              spacing: 8,
+              runSpacing: 8,
               children: toys.map((toy) {
                 return GestureDetector(
                   onTap: () => _seleccionarJuguete(toy),
                   child: Container(
-                    width: 56, height: 56,
+                    width: 56,
+                    height: 56,
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.9),
                       borderRadius: BorderRadius.circular(12),
@@ -557,7 +980,13 @@ class _JugarScreenState extends State<JugarScreen>
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(toy.emoji, style: const TextStyle(fontSize: 24)),
-                        Text(toy.name, style: const TextStyle(fontSize: 7, fontWeight: FontWeight.w600)),
+                        Text(
+                          toy.name,
+                          style: const TextStyle(
+                            fontSize: 7,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -574,19 +1003,31 @@ class _JugarScreenState extends State<JugarScreen>
   Widget _buildGrass(Size size) {
     return Stack(
       children: [
-        Positioned(top: size.height * 0.25, left: 10,
-            child: _circle(160, const Color(0xFF6db854), 0.2)),
-        Positioned(top: size.height * 0.33, right: 20,
-            child: _circle(220, const Color(0xFF5fa045), 0.15)),
-        Positioned(bottom: size.height * 0.25, left: size.width * 0.33,
-            child: _circle(190, const Color(0xFF7bc95f), 0.2)),
         Positioned(
-          bottom: 0, left: 0, right: 0,
+          top: size.height * 0.25,
+          left: 10,
+          child: _circle(160, const Color(0xFF6db854), 0.2),
+        ),
+        Positioned(
+          top: size.height * 0.33,
+          right: 20,
+          child: _circle(220, const Color(0xFF5fa045), 0.15),
+        ),
+        Positioned(
+          bottom: size.height * 0.25,
+          left: size.width * 0.33,
+          child: _circle(190, const Color(0xFF7bc95f), 0.2),
+        ),
+        Positioned(
+          bottom: 0,
+          left: 0,
+          right: 0,
           child: Container(
             height: 180,
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                begin: Alignment.bottomCenter, end: Alignment.topCenter,
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
                 colors: [
                   const Color(0xFF5fa045).withValues(alpha: 0.4),
                   Colors.transparent,
@@ -602,26 +1043,41 @@ class _JugarScreenState extends State<JugarScreen>
   // ── Caja de juguetes ───────────────────────────────────
   Widget _buildToyBox() {
     return Positioned(
-      left: 12, top: 60,
+      left: 12,
+      top: 60,
       child: GestureDetector(
         onTap: () => setState(() => _mostrando = !_mostrando),
         child: Container(
-          width: 105, height: 85,
+          width: 105,
+          height: 85,
           decoration: BoxDecoration(
             gradient: const LinearGradient(
-              begin: Alignment.topCenter, end: Alignment.bottomCenter,
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
               colors: [Color(0xFF708be6), Color(0xFF5a70b8)],
             ),
             borderRadius: BorderRadius.circular(14),
-            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 6))],
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
+              ),
+            ],
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Text('🎁', style: TextStyle(fontSize: 34)),
               const SizedBox(height: 4),
-              Text(_mostrando ? 'Cerrar' : 'Juguetes',
-                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600)),
+              Text(
+                _mostrando ? 'Cerrar' : 'Juguetes',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
         ),
@@ -631,7 +1087,8 @@ class _JugarScreenState extends State<JugarScreen>
 
   Widget _circle(double size, Color color, double opacity) {
     return Container(
-      width: size, height: size,
+      width: size,
+      height: size,
       decoration: BoxDecoration(
         color: color.withValues(alpha: opacity),
         shape: BoxShape.circle,
