@@ -7,6 +7,7 @@ import 'application/cubits/pet_world_cubit.dart';
 import 'application/services/pet_activity_resolver.dart';
 import 'application/services/pet_bootstrap_service.dart';
 import 'application/services/pet_location_resolver.dart';
+import 'application/services/notification_service.dart';
 import 'core/app_router.dart';
 import 'core/disaster_system.dart';
 import 'cubit/pet_cubit.dart';
@@ -23,6 +24,7 @@ import 'firebase_options.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await NotificationService.instance.init();
   runApp(const MyApp());
 }
 
@@ -70,7 +72,10 @@ class MyApp extends StatelessWidget {
                 previous.mascota?.idMascota != current.mascota?.idMascota,
             listener: (context, state) async {
               final mascota = state.mascota;
-              if (mascota == null) return;
+              if (mascota == null) {
+                await NotificationService.instance.cancelCareReminder();
+                return;
+              }
               final petCubit = context.read<PetCubit>();
               final petWorldCubit = context.read<PetWorldCubit>();
               final missionCubit = context.read<MissionCubit>();
@@ -96,6 +101,27 @@ class MyApp extends StatelessWidget {
 
               await missionCubit.hydrate(mascota.idMascota);
               await disasterCubit.verificarDesastre(mascota.idMascota);
+              await NotificationService.instance
+                  .requestPermissionsOncePerSession();
+              await NotificationService.instance
+                  .rescheduleCareReminderForCurrentUser();
+            },
+          ),
+          BlocListener<PetCubit, PetState>(
+            listenWhen: (previous, current) {
+              final wasActive = previous.mascota?.anomaliaDetectada ?? false;
+              final isActive = current.mascota?.anomaliaDetectada ?? false;
+              return !wasActive && isActive;
+            },
+            listener: (context, state) {
+              final messenger = _messengerKey.currentState;
+              messenger?.hideCurrentSnackBar();
+              messenger?.showSnackBar(
+                const SnackBar(
+                  content: Text('Tu mascota necesita cuidado ahora.'),
+                  duration: Duration(seconds: 4),
+                ),
+              );
             },
           ),
           BlocListener<PetCubit, PetState>(

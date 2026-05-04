@@ -1,3 +1,5 @@
+import '../../core/enums/personalidad_tipo.dart';
+
 class PersonalityRules {
   final int homeWeight;
   final int alimentarWeight;
@@ -26,8 +28,8 @@ class PersonalityRulesRegistry {
     playingProbability: 0.4,
   );
 
-  static const Map<String, PersonalityRules> _rules = {
-    'Glotón': PersonalityRules(
+  static const Map<PersonalidadTipo, PersonalityRules> _rules = {
+    PersonalidadTipo.gloton: PersonalityRules(
       homeWeight: 20,
       alimentarWeight: 50,
       jugarWeight: 20,
@@ -35,7 +37,7 @@ class PersonalityRulesRegistry {
       eatingProbability: 0.8,
       playingProbability: 0.25,
     ),
-    'Juguetón': PersonalityRules(
+    PersonalidadTipo.jugueton: PersonalityRules(
       homeWeight: 20,
       alimentarWeight: 15,
       jugarWeight: 50,
@@ -43,7 +45,7 @@ class PersonalityRulesRegistry {
       eatingProbability: 0.45,
       playingProbability: 0.8,
     ),
-    'Travieso': PersonalityRules(
+    PersonalidadTipo.travieso: PersonalityRules(
       homeWeight: 30,
       alimentarWeight: 15,
       jugarWeight: 40,
@@ -51,7 +53,7 @@ class PersonalityRulesRegistry {
       eatingProbability: 0.45,
       playingProbability: 0.7,
     ),
-    'Cariñoso': PersonalityRules(
+    PersonalidadTipo.carinoso: PersonalityRules(
       homeWeight: 40,
       alimentarWeight: 20,
       jugarWeight: 25,
@@ -59,7 +61,7 @@ class PersonalityRulesRegistry {
       eatingProbability: 0.5,
       playingProbability: 0.45,
     ),
-    'Delicado': PersonalityRules(
+    PersonalidadTipo.delicado: PersonalityRules(
       homeWeight: 35,
       alimentarWeight: 25,
       jugarWeight: 15,
@@ -69,5 +71,6 @@ class PersonalityRulesRegistry {
     ),
   };
 
-  static PersonalityRules getFor(String rasgo) => _rules[rasgo] ?? _fallback;
+  static PersonalityRules getFor(String rasgo) =>
+      _rules[PersonalidadTipo.fromString(rasgo)] ?? _fallback;
 }

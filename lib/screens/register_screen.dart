@@ -1,8 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cuidar_huellitas/Models/usuario_model.dart';
+import 'package:cuidar_huellitas/application/services/notification_service.dart';
 import 'package:cuidar_huellitas/core/app_colors.dart';
 import 'package:cuidar_huellitas/core/app_router.dart';
 import 'package:cuidar_huellitas/cubit/pet_cubit.dart';
+import 'package:cuidar_huellitas/data/repositories/inventory_repository.dart';
 import 'package:cuidar_huellitas/widgets/auth/auth_widgets.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -80,6 +82,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     if (!_formKey.currentState!.validate()) return;
 
+    final pedirNotificaciones = await _mostrarAvisoNotificacionesTutor();
+    if (!mounted) return;
+
     setState(() {
       _cargando = true;
       _errorMessage = null;
@@ -100,13 +105,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
           idUsuario: userCredential.user!.uid,
           nombre: _nombreController.text.trim(),
           correo: _correoController.text.trim(),
-          tipoUsuario: _tipoSeleccionado == 'nino' ? 'niño' : _tipoSeleccionado,
+          tipoUsuario: _tipoSeleccionado,
         );
 
         await FirebaseFirestore.instance
             .collection('usuarios')
             .doc(nuevoUsuario.idUsuario)
             .set(nuevoUsuario.toFirestore());
+        await InventoryRepository().ensureDefaultInventory(
+          nuevoUsuario.idUsuario,
+        );
+      }
+
+      if (pedirNotificaciones) {
+        await NotificationService.instance.requestPermissions();
       }
 
       await petCubit.cargarMascota();
@@ -138,6 +150,33 @@ class _RegisterScreenState extends State<RegisterScreen> {
         setState(() => _cargando = false);
       }
     }
+  }
+
+  Future<bool> _mostrarAvisoNotificacionesTutor() async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Aviso para madre, padre o tutor'),
+          content: const Text(
+            'CuidARHuellitas puede enviar recordatorios locales para volver a cuidar la mascota. No incluiremos datos de salud, rutina ni informacion sensible en el mensaje.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Ahora no'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Permitir recordatorios'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return result ?? false;
   }
 
   @override

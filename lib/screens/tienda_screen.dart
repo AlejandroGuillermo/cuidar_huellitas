@@ -1,12 +1,15 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../Models/inventario_comida_model.dart';
+import '../Models/inventario_cosmeticos_model.dart';
 import '../core/app_colors.dart';
 import '../core/cosmetic_catalog.dart';
 import '../core/food_catalog.dart';
 import '../cubit/pet_cubit.dart';
+import '../data/repositories/inventory_repository.dart';
+import '../data/repositories/user_repository.dart';
 
 class TiendaScreen extends StatefulWidget {
   const TiendaScreen({super.key});
@@ -16,8 +19,9 @@ class TiendaScreen extends StatefulWidget {
 }
 
 class _TiendaScreenState extends State<TiendaScreen> {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final InventoryRepository _inventoryRepository = InventoryRepository();
+  final UserRepository _userRepository = UserRepository();
 
   bool _isLoading = true;
   bool _isBuying = false;
@@ -44,61 +48,24 @@ class _TiendaScreenState extends State<TiendaScreen> {
     }
 
     try {
-      final userRef = _firestore.collection('usuarios').doc(userId);
-      final snap = await userRef.get();
-      final data = snap.data() ?? <String, dynamic>{};
-
-      final rawFoodInventory =
-          (data['inventario_comida'] as Map<String, dynamic>?) ?? {};
-      final rawFoodUnlocked =
-          (data['alimentos_desbloqueados'] as Map<String, dynamic>?) ?? {};
-      final rawCosmeticInventory =
-          (data['inventario_cosmeticos'] as Map<String, dynamic>?) ?? {};
-
-      final normalizedFoodInventory = <String, double>{};
-      final normalizedFoodUnlocked = <String, bool>{};
-      final normalizedCosmeticInventory = <String, bool>{};
-
-      final starterFoodInventory = FoodCatalog.starterInventory();
-      final starterFoodUnlocked = FoodCatalog.starterUnlocked();
-      final starterCosmetics = CosmeticCatalog.starterInventory();
-
-      for (final food in FoodCatalog.items) {
-        final inv = rawFoodInventory[food.id];
-        final unlocked = rawFoodUnlocked[food.id];
-        normalizedFoodInventory[food.id] = inv is num
-            ? inv.toDouble().clamp(0, 99999).toDouble()
-            : (starterFoodInventory[food.id] ?? 0.0);
-        normalizedFoodUnlocked[food.id] = unlocked is bool
-            ? unlocked
-            : (starterFoodUnlocked[food.id] ?? false);
-      }
-
-      for (final cosmetic in CosmeticCatalog.items) {
-        final owned = rawCosmeticInventory[cosmetic.id];
-        normalizedCosmeticInventory[cosmetic.id] = owned == true ||
-            ((owned is num) && owned > 0) ||
-            (starterCosmetics[cosmetic.id] ?? false);
-      }
-
-      final coins = (data['monedas'] as num?)?.toInt() ??
-          (data['totalScore'] as num?)?.toInt() ??
-          245;
-      final equippedHead = context.read<PetCubit>().state.mascota?.itemCabezaId ?? '';
-
-      await userRef.set({
-        'monedas': coins,
-        'inventario_comida': normalizedFoodInventory,
-        'alimentos_desbloqueados': normalizedFoodUnlocked,
-        'inventario_cosmeticos': normalizedCosmeticInventory,
-      }, SetOptions(merge: true));
+      await _inventoryRepository.ensureDefaultInventory(userId);
+      await _userRepository.normalizeLegacyUserDoc(userId);
+      final foodInventory = await _inventoryRepository.loadFoodInventory(
+        userId,
+      );
+      final cosmetics = await _inventoryRepository.loadCosmeticsInventory(
+        userId,
+      );
+      final coins = await _userRepository.loadCoins(userId);
 
       if (!mounted) return;
+      final equippedHead =
+          context.read<PetCubit>().state.mascota?.itemCabezaId ?? '';
       setState(() {
         _coins = coins;
-        _foodInventory = normalizedFoodInventory;
-        _foodUnlocked = normalizedFoodUnlocked;
-        _cosmeticInventory = normalizedCosmeticInventory;
+        _foodInventory = foodInventory.cantidades;
+        _foodUnlocked = foodInventory.desbloqueados;
+        _cosmeticInventory = cosmetics.poseidos;
         _equippedHeadItemId = equippedHead;
         _isLoading = false;
       });
@@ -128,11 +95,14 @@ class _TiendaScreenState extends State<TiendaScreen> {
       nextInventory[item.id] =
           (nextInventory[item.id] ?? 0.0) + FoodCatalog.bagUnits;
 
-      await _firestore.collection('usuarios').doc(userId).set({
-        'monedas': nextCoins,
-        'inventario_comida': nextInventory,
-        'alimentos_desbloqueados': nextUnlocked,
-      }, SetOptions(merge: true));
+      await _inventoryRepository.saveFoodInventoryAndCoins(
+        userId: userId,
+        coins: nextCoins,
+        inventory: InventarioComidaModel(
+          cantidades: nextInventory,
+          desbloqueados: nextUnlocked,
+        ),
+      );
 
       if (!mounted) return;
       setState(() {
@@ -163,21 +133,30 @@ class _TiendaScreenState extends State<TiendaScreen> {
     setState(() => _isBuying = true);
     try {
       final nextCoins = (_coins - item.price).clamp(0, 999999).toInt();
-      final nextCosmetics = <String, bool>{..._cosmeticInventory, item.id: true};
+      final nextCosmetics = <String, bool>{
+        ..._cosmeticInventory,
+        item.id: true,
+      };
+      final currentCosmetics = await _inventoryRepository
+          .loadCosmeticsInventory(userId);
 
-      await _firestore.collection('usuarios').doc(userId).set({
-        'monedas': nextCoins,
-        'inventario_cosmeticos': nextCosmetics,
-      }, SetOptions(merge: true));
+      await _inventoryRepository.saveCosmeticsInventoryAndCoins(
+        userId: userId,
+        coins: nextCoins,
+        inventory: InventarioCosmeticosModel(
+          poseidos: nextCosmetics,
+          equipadoEn: currentCosmetics.equipadoEn,
+        ),
+      );
 
       if (!mounted) return;
       setState(() {
         _coins = nextCoins;
         _cosmeticInventory = nextCosmetics;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Compraste ${item.name}')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Compraste ${item.name}')));
     } finally {
       if (mounted) setState(() => _isBuying = false);
     }
@@ -254,11 +233,11 @@ class _TiendaScreenState extends State<TiendaScreen> {
                           padding: EdgeInsets.zero,
                           gridDelegate:
                               const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            mainAxisSpacing: 12,
-                            crossAxisSpacing: 12,
-                            childAspectRatio: 0.84,
-                          ),
+                                crossAxisCount: 2,
+                                mainAxisSpacing: 12,
+                                crossAxisSpacing: 12,
+                                childAspectRatio: 0.84,
+                              ),
                           itemBuilder: (context, index) {
                             final item = FoodCatalog.items[index];
                             final units = _foodInventory[item.id] ?? 0.0;
@@ -268,7 +247,9 @@ class _TiendaScreenState extends State<TiendaScreen> {
                               name: item.name,
                               price: item.price,
                               stockLabel: _bagText(units),
-                              buttonLabel: unlocked ? 'Comprar +1 bolsa' : 'Desbloquear',
+                              buttonLabel: unlocked
+                                  ? 'Comprar +1 bolsa'
+                                  : 'Desbloquear',
                               loading: _isBuying,
                               onPressed: () => _buyFood(item),
                             );
@@ -284,11 +265,11 @@ class _TiendaScreenState extends State<TiendaScreen> {
                           padding: EdgeInsets.zero,
                           gridDelegate:
                               const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            mainAxisSpacing: 12,
-                            crossAxisSpacing: 12,
-                            childAspectRatio: 0.84,
-                          ),
+                                crossAxisCount: 2,
+                                mainAxisSpacing: 12,
+                                crossAxisSpacing: 12,
+                                childAspectRatio: 0.84,
+                              ),
                           itemBuilder: (context, index) {
                             final item = CosmeticCatalog.items[index];
                             final owned = _cosmeticInventory[item.id] ?? false;
@@ -311,8 +292,8 @@ class _TiendaScreenState extends State<TiendaScreen> {
                               onPressed: !owned
                                   ? () => _buyCosmetic(item)
                                   : (equipped
-                                      ? _removeHeadCosmetic
-                                      : () => _equipCosmetic(item)),
+                                        ? _removeHeadCosmetic
+                                        : () => _equipCosmetic(item)),
                             );
                           },
                         ),

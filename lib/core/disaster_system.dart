@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../data/repositories/user_repository.dart';
 import 'app_router.dart';
 
 const String disasterScreenAll = 'all';
@@ -49,6 +50,7 @@ class DisasterState {
 
 class DisasterCubit extends Cubit<DisasterState> {
   final Random _random = Random();
+  final UserRepository _userRepository = UserRepository();
 
   DisasterCubit() : super(const DisasterState());
 
@@ -302,19 +304,7 @@ class DisasterCubit extends Cubit<DisasterState> {
     required int coins,
   }) async {
     if (coins <= 0) return;
-
-    final userRef = FirebaseFirestore.instance
-        .collection('usuarios')
-        .doc(userId);
-    await FirebaseFirestore.instance.runTransaction((tx) async {
-      final snap = await tx.get(userRef);
-      final data = snap.data() ?? <String, dynamic>{};
-      final actuales =
-          (data['monedas'] as num?)?.toInt() ??
-          (data['totalScore'] as num?)?.toInt() ??
-          0;
-      tx.set(userRef, {'monedas': actuales + coins}, SetOptions(merge: true));
-    });
+    await _userRepository.addCoins(userId, coins);
   }
 
   String _normalizarTipoMision(String idMision, Map<String, dynamic> data) {

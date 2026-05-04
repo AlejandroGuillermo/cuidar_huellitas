@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -7,12 +7,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../Models/inventario_comida_model.dart';
 import '../application/cubits/pet_world_cubit.dart';
 import '../core/app_colors.dart';
 import '../core/cosmetic_catalog.dart';
+import '../core/enums/personalidad_tipo.dart';
 import '../core/food_catalog.dart';
 import '../cubit/pet_cubit.dart';
 import '../cubit/pet_state.dart';
+import '../data/repositories/inventory_repository.dart';
+import '../data/repositories/user_repository.dart';
 import '../domain/enums/pet_activity.dart';
 import '../domain/enums/pet_location.dart';
 import '../widgets/action_screen_header.dart';
@@ -31,6 +35,8 @@ class _AlimentarScreenState extends State<AlimentarScreen>
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final InventoryRepository _inventoryRepository = InventoryRepository();
+  final UserRepository _userRepository = UserRepository();
   final Random _random = Random();
 
   late AnimationController _petAnimationController;
@@ -159,45 +165,16 @@ class _AlimentarScreenState extends State<AlimentarScreen>
     }
 
     try {
-      final userRef = _firestore.collection('usuarios').doc(userId);
-      final snap = await userRef.get();
-      final data = snap.data() ?? <String, dynamic>{};
-      final rawInventory =
-          (data['inventario_comida'] as Map<String, dynamic>?) ?? {};
-      final rawUnlocked =
-          (data['alimentos_desbloqueados'] as Map<String, dynamic>?) ?? {};
-
-      final normalizedInventory = <String, double>{};
-      final normalizedUnlocked = <String, bool>{};
-      final starterInventory = FoodCatalog.starterInventory();
-      final starterUnlocked = FoodCatalog.starterUnlocked();
-      for (final food in FoodCatalog.items) {
-        final inv = rawInventory[food.id];
-        final unlock = rawUnlocked[food.id];
-        normalizedInventory[food.id] = inv is num
-            ? inv.toDouble().clamp(0, 99999).toDouble()
-            : (starterInventory[food.id] ?? 0.0);
-        normalizedUnlocked[food.id] = unlock is bool
-            ? unlock
-            : (starterUnlocked[food.id] ?? false);
-      }
-
-      final coins =
-          (data['monedas'] as num?)?.toInt() ??
-          (data['totalScore'] as num?)?.toInt() ??
-          245;
-
-      await userRef.set({
-        'monedas': coins,
-        'inventario_comida': normalizedInventory,
-        'alimentos_desbloqueados': normalizedUnlocked,
-      }, SetOptions(merge: true));
+      await _inventoryRepository.ensureDefaultInventory(userId);
+      await _userRepository.normalizeLegacyUserDoc(userId);
+      final inventory = await _inventoryRepository.loadFoodInventory(userId);
+      final coins = await _userRepository.loadCoins(userId);
 
       if (!mounted) return;
       setState(() {
         _coins = coins;
-        _inventoryUnits = normalizedInventory;
-        _unlockedFoods = normalizedUnlocked;
+        _inventoryUnits = inventory.cantidades;
+        _unlockedFoods = inventory.desbloqueados;
         _loadingData = false;
       });
     } catch (_) {
@@ -220,11 +197,14 @@ class _AlimentarScreenState extends State<AlimentarScreen>
     final petCubit = context.read<PetCubit>();
     final userId = _auth.currentUser?.uid;
     if (userId != null) {
-      await _firestore.collection('usuarios').doc(userId).set({
-        'monedas': _coins,
-        'inventario_comida': _inventoryUnits,
-        'alimentos_desbloqueados': _unlockedFoods,
-      }, SetOptions(merge: true));
+      await _inventoryRepository.saveFoodInventoryAndCoins(
+        userId: userId,
+        coins: _coins,
+        inventory: InventarioComidaModel(
+          cantidades: _inventoryUnits,
+          desbloqueados: _unlockedFoods,
+        ),
+      );
     }
 
     await petCubit.actualizarEstadoPlato(
@@ -281,7 +261,9 @@ class _AlimentarScreenState extends State<AlimentarScreen>
     if (plateLevel > 0 && _plateFoodId != null && _plateFoodId != food.id) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Primero termina el alimento que ya estÃ¡ en el plato.'),
+          content: Text(
+            'Primero termina el alimento que ya estÃ¡ en el plato.',
+          ),
         ),
       );
       return;
@@ -358,16 +340,18 @@ class _AlimentarScreenState extends State<AlimentarScreen>
     if (plateLevel <= 0 || _plateFoodId == null) return;
 
     final petCubit = context.read<PetCubit>();
-    final estadoDescanso = petCubit.state.mascota?.estadoDescanso ?? 'despierto';
+    final estadoDescanso =
+        petCubit.state.mascota?.estadoDescanso ?? 'despierto';
     final estaDescansando =
         estadoDescanso == 'dormido' ||
         estadoDescanso == 'acostado' ||
         estadoDescanso == 'siesta';
     if (estaDescansando) return;
 
-    final rasgo = petCubit.state.mascota?.rasgo ?? 'Curioso';
-    final isJugueton = rasgo == 'JuguetÃ³n';
-    final isTravieso = rasgo == 'Travieso';
+    final personalidad =
+        petCubit.state.mascota?.personalidad ?? PersonalidadTipo.jugueton;
+    final isJugueton = personalidad == PersonalidadTipo.jugueton;
+    final isTravieso = personalidad == PersonalidadTipo.travieso;
     final throwProbability = isTravieso ? 0.45 : (isJugueton ? 0.30 : 0.0);
 
     if (throwProbability > 0 && _random.nextDouble() <= throwProbability) {
@@ -483,19 +467,7 @@ class _AlimentarScreenState extends State<AlimentarScreen>
     final userId = _auth.currentUser?.uid;
     if (userId == null || coins <= 0) return;
 
-    final userRef = _firestore.collection('usuarios').doc(userId);
-    int totalActualizado = _coins;
-
-    await _firestore.runTransaction((tx) async {
-      final snap = await tx.get(userRef);
-      final data = snap.data() ?? <String, dynamic>{};
-      final monedasActuales =
-          (data['monedas'] as num?)?.toInt() ??
-          (data['totalScore'] as num?)?.toInt() ??
-          0;
-      totalActualizado = monedasActuales + coins;
-      tx.set(userRef, {'monedas': totalActualizado}, SetOptions(merge: true));
-    });
+    final totalActualizado = await _userRepository.addCoins(userId, coins);
 
     if (!mounted) return;
     setState(() => _coins = totalActualizado);
@@ -853,7 +825,7 @@ class _AlimentarScreenState extends State<AlimentarScreen>
                       padding: const EdgeInsets.all(12),
                       child: Column(
                         children: [
-                    // Header de la alacena abierta
+                          // Header de la alacena abierta
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [

@@ -1,64 +1,91 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class UsuarioModel {
-  // ── Atributos ──────────────────────────────────────────
-  final String idUsuario;       // Doc ID generado por Firebase
-  final String nombre;          // Apodo del niño, ej: "Carlitos"
-  final String correo;          // Correo del padre/tutor
-  final String tipoUsuario;     // "niño" o "tutor"
-  final int totalScore;         // Puntos acumulados por misiones
+  final String idUsuario;
+  final String nombre;
+  final String correo;
+  final String tipoUsuario;
+  final int monedas;
+  final int totalScore;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
 
-  // ── Constructor ────────────────────────────────────────
   const UsuarioModel({
     required this.idUsuario,
     required this.nombre,
     required this.correo,
     required this.tipoUsuario,
-    this.totalScore = 0,        // Empieza en 0 al registrarse
+    this.monedas = 245,
+    this.totalScore = 0,
+    this.createdAt,
+    this.updatedAt,
   });
 
-  // ── fromFirestore ──────────────────────────────────────
-  // Se usa cuando LEES un documento de Firestore.
-  // El snapshot es el documento crudo de Firebase.
   factory UsuarioModel.fromFirestore(DocumentSnapshot snapshot) {
     final data = snapshot.data() as Map<String, dynamic>;
+    DateTime? tsToDate(dynamic value) =>
+        value is Timestamp ? value.toDate() : null;
+
     return UsuarioModel(
-      idUsuario: snapshot.id,                        // El Doc ID viene del snapshot
+      idUsuario: snapshot.id,
       nombre: data['nombre'] ?? '',
       correo: data['correo'] ?? '',
-      tipoUsuario: data['tipo_usuario'] ?? 'niño',
-      totalScore: data['totalScore'] ?? 0,
+      tipoUsuario: normalizarTipoUsuario(data['tipo_usuario'] as String?),
+      monedas:
+          (data['monedas'] as num?)?.toInt() ??
+          (data['total_score'] as num?)?.toInt() ??
+          (data['totalScore'] as num?)?.toInt() ??
+          245,
+      totalScore:
+          (data['total_score'] as num?)?.toInt() ??
+          (data['totalScore'] as num?)?.toInt() ??
+          0,
+      createdAt: tsToDate(data['created_at']),
+      updatedAt: tsToDate(data['updated_at']),
     );
   }
 
-  // ── toFirestore ────────────────────────────────────────
-  // Se usa cuando GUARDAS o ACTUALIZAS en Firestore.
-  // Devuelve un Map que Firebase entiende.
   Map<String, dynamic> toFirestore() {
     return {
       'nombre': nombre,
       'correo': correo,
-      'tipo_usuario': tipoUsuario,
-      'totalScore': totalScore,
-      // Nota: idUsuario NO se guarda aquí, es el Doc ID
+      'tipo_usuario': normalizarTipoUsuario(tipoUsuario),
+      'monedas': monedas,
+      'total_score': totalScore,
+      'created_at': createdAt != null
+          ? Timestamp.fromDate(createdAt!)
+          : FieldValue.serverTimestamp(),
+      'updated_at': updatedAt != null
+          ? Timestamp.fromDate(updatedAt!)
+          : FieldValue.serverTimestamp(),
     };
   }
 
-  // ── copyWith ───────────────────────────────────────────
-  // Útil para actualizar solo un campo sin tocar los demás.
-  // Ejemplo: usuario.copyWith(totalScore: usuario.totalScore + 50)
   UsuarioModel copyWith({
     String? nombre,
     String? correo,
     String? tipoUsuario,
+    int? monedas,
     int? totalScore,
+    DateTime? createdAt,
+    DateTime? updatedAt,
   }) {
     return UsuarioModel(
       idUsuario: idUsuario,
       nombre: nombre ?? this.nombre,
       correo: correo ?? this.correo,
       tipoUsuario: tipoUsuario ?? this.tipoUsuario,
+      monedas: monedas ?? this.monedas,
       totalScore: totalScore ?? this.totalScore,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
     );
+  }
+
+  static String normalizarTipoUsuario(String? value) {
+    final raw = (value ?? '').trim().toLowerCase();
+    if (raw == 'nino' || raw == 'niño' || raw == 'niÃ±o') return 'nino';
+    if (raw == 'tutor') return 'tutor';
+    return 'nino';
   }
 }

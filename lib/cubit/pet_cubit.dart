@@ -6,13 +6,17 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'pet_state.dart';
 import '../Models/mascota_model.dart';
+import '../application/services/notification_service.dart';
 import '../core/personality_config.dart';
 import '../core/disaster_system.dart';
+import '../core/enums/personalidad_tipo.dart';
 import '../core/food_catalog.dart';
+import '../data/repositories/inventory_repository.dart';
 
 class PetCubit extends Cubit<PetState> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final InventoryRepository _inventoryRepository = InventoryRepository();
   final Random _random = Random();
   Timer? _deterioroTimer;
   Timer? _platoComidaTimer;
@@ -208,8 +212,10 @@ class PetCubit extends Cubit<PetState> {
   Future<String> intentarAcostar({required bool esNoche}) async {
     final mascota = state.mascota;
     if (mascota == null) return 'ok';
-    final rasgo = mascota.rasgo;
-    final esJuguetonOTravieso = rasgo == 'Juguetón' || rasgo == 'Travieso';
+    final personalidad = mascota.personalidad;
+    final esJuguetonOTravieso =
+        personalidad == PersonalidadTipo.jugueton ||
+        personalidad == PersonalidadTipo.travieso;
 
     if (!esNoche && mascota.cortinasAbiertas) {
       return 'siesta_requiere_cortina';
@@ -224,7 +230,7 @@ class PetCubit extends Cubit<PetState> {
       if (!obedece) {
         // No obedece
         emit(state.copyWith(estadoMision: 'perro_rebelde'));
-        if (rasgo == 'Travieso') {
+        if (personalidad == PersonalidadTipo.travieso) {
           await disasterCubit?.generarDesastre(
             mascotaId: mascota.idMascota,
             tipo: DisasterType.basura,
@@ -252,7 +258,7 @@ class PetCubit extends Cubit<PetState> {
     if (mascota == null) return;
 
     final tapsBase = 3 + _random.nextInt(4); // 3–6
-    final esCarinoso = mascota.rasgo == 'Cariñoso';
+    final esCarinoso = mascota.personalidad == PersonalidadTipo.carinoso;
     final requiereCariciasParaSiesta = !esNoche && esCarinoso;
     final requiereCaricias = esNoche || requiereCariciasParaSiesta;
     final cariciasBase = requiereCaricias
@@ -491,9 +497,9 @@ class PetCubit extends Cubit<PetState> {
     final mascota = state.mascota;
     if (mascota == null) return;
 
-    final rasgo = mascota.rasgo;
+    final personalidad = mascota.personalidad;
 
-    if (rasgo == 'Travieso') {
+    if (personalidad == PersonalidadTipo.travieso) {
       // Escapa a otra pantalla
       disasterCubit?.generarDesastre(
         mascotaId: mascota.idMascota,
@@ -620,25 +626,35 @@ class PetCubit extends Cubit<PetState> {
     if (mascota == null || userId == null || itemId.isEmpty) return false;
 
     try {
-      final userDoc = await _firestore.collection('usuarios').doc(userId).get();
-      final data = userDoc.data() ?? <String, dynamic>{};
-      final rawInventory =
-          (data['inventario_cosmeticos'] as Map<String, dynamic>?) ?? {};
-      final owned =
-          rawInventory[itemId] == true ||
-          ((rawInventory[itemId] is num) && (rawInventory[itemId] as num) > 0);
-
-      if (!owned) return false;
+      final cosmetics = await _inventoryRepository.loadCosmeticsInventory(
+        userId,
+      );
+      if (cosmetics.poseidos[itemId] != true) return false;
 
       final despues = mascota.copyWith(itemCabezaId: itemId);
       emit(state.copyWith(mascota: despues));
 
-      await _firestore
+      final mascotaRef = _firestore
           .collection('usuarios')
           .doc(userId)
           .collection('mascotas')
-          .doc(mascota.idMascota)
-          .update({'item_cabeza_id': itemId});
+          .doc(mascota.idMascota);
+      final cosmeticsRef = _firestore
+          .collection('usuarios')
+          .doc(userId)
+          .collection('inventario')
+          .doc('cosmeticos');
+      final batch = _firestore.batch();
+      batch.update(mascotaRef, {'item_cabeza_id': itemId});
+      final inventoryUpdates = <String, dynamic>{
+        'equipado_en.$itemId': mascota.idMascota,
+        'updated_at': FieldValue.serverTimestamp(),
+      };
+      if (mascota.itemCabezaId.isNotEmpty && mascota.itemCabezaId != itemId) {
+        inventoryUpdates['equipado_en.${mascota.itemCabezaId}'] = null;
+      }
+      batch.update(cosmeticsRef, inventoryUpdates);
+      await batch.commit();
 
       return true;
     } catch (e) {
@@ -655,12 +671,26 @@ class PetCubit extends Cubit<PetState> {
     try {
       final despues = mascota.copyWith(clearItemCabezaId: true);
       emit(state.copyWith(mascota: despues));
-      await _firestore
+      await _inventoryRepository.ensureDefaultInventory(userId);
+      final mascotaRef = _firestore
           .collection('usuarios')
           .doc(userId)
           .collection('mascotas')
-          .doc(mascota.idMascota)
-          .update({'item_cabeza_id': ''});
+          .doc(mascota.idMascota);
+      final cosmeticsRef = _firestore
+          .collection('usuarios')
+          .doc(userId)
+          .collection('inventario')
+          .doc('cosmeticos');
+      final batch = _firestore.batch();
+      batch.update(mascotaRef, {'item_cabeza_id': ''});
+      if (mascota.itemCabezaId.isNotEmpty) {
+        batch.update(cosmeticsRef, {
+          'equipado_en.${mascota.itemCabezaId}': null,
+          'updated_at': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
     } catch (e) {
       debugPrint('Error quitar item cabeza: $e');
     }
@@ -856,7 +886,9 @@ class PetCubit extends Cubit<PetState> {
   }
 
   double _chanceComerPlato(String rasgo) {
-    return rasgo == 'Glotón' ? 0.60 : 0.55;
+    return PersonalidadTipo.fromString(rasgo) == PersonalidadTipo.gloton
+        ? 0.60
+        : 0.55;
   }
 
   int _puntosHambrePorPaso(String? foodId) {
@@ -867,14 +899,20 @@ class PetCubit extends Cubit<PetState> {
   }
 
   double _chanceTirarComidaPorRasgo(String rasgo) {
-    if (rasgo == 'Travieso') return 0.45;
-    if (rasgo == 'JuguetÃ³n') return 0.30;
+    final personalidad = PersonalidadTipo.fromString(rasgo);
+    if (personalidad == PersonalidadTipo.travieso) return 0.45;
+    if (personalidad == PersonalidadTipo.jugueton) return 0.30;
     return 0.0;
   }
 
   String? _misionRecogerComidaPorRasgo(String rasgo) {
-    if (rasgo == 'Travieso') return 'travieso_recoger_comida';
-    if (rasgo == 'JuguetÃ³n') return 'jugueton_recoger_comida';
+    final personalidad = PersonalidadTipo.fromString(rasgo);
+    if (personalidad == PersonalidadTipo.travieso) {
+      return 'travieso_recoger_comida';
+    }
+    if (personalidad == PersonalidadTipo.jugueton) {
+      return 'jugueton_recoger_comida';
+    }
     return null;
   }
 
@@ -936,7 +974,7 @@ class PetCubit extends Cubit<PetState> {
         ? mascota.platoEmoji
         : 'ðŸ–';
 
-    if (mascota.rasgo == 'Travieso') {
+    if (mascota.personalidad == PersonalidadTipo.travieso) {
       await disasterCubit?.generarDesastreDistribuido(
         mascotaId: mascota.idMascota,
         tipo: DisasterType.comida,
@@ -1028,7 +1066,7 @@ class PetCubit extends Cubit<PetState> {
           .collection('mascotas')
           .doc(antes.idMascota);
 
-      await mascotaRef.update({
+      final updateData = <String, dynamic>{
         'nivel_salud': despues.nivelSalud,
         'nivel_energia': despues.nivelEnergia,
         'nivel_hambre': despues.nivelHambre,
@@ -1045,7 +1083,28 @@ class PetCubit extends Cubit<PetState> {
         'ultima_interaccion': Timestamp.now(),
         'deterioro_acelerado': despues.deterioroAcelerado,
         'anomalia_detectada': despues.anomaliaDetectada,
-      });
+        'anomaliaActiva': despues.anomaliaDetectada,
+      };
+
+      switch (accion) {
+        case 'alimentar':
+          updateData['ultima_comida'] = Timestamp.now();
+          break;
+        case 'jugar':
+          updateData['ultimo_juego'] = Timestamp.now();
+          break;
+        case 'banar':
+          updateData['ultimo_bano'] = Timestamp.now();
+          break;
+        case 'curar':
+          updateData['ultima_curacion'] = Timestamp.now();
+          break;
+        case 'pasear':
+          updateData['ultimo_paseo'] = Timestamp.now();
+          break;
+      }
+
+      await mascotaRef.update(updateData);
 
       final ahora = DateTime.now();
       await mascotaRef.collection('progreso').add({
@@ -1055,7 +1114,7 @@ class PetCubit extends Cubit<PetState> {
         'fecha_actualizacion': Timestamp.now(),
         'estado_antes': antes.nivelesMap,
         'estado_despues': despues.nivelesMap,
-        'rasgo': antes.rasgo,
+        'rasgo': antes.personalidad.toFirestoreString(),
         ...?extras,
       });
     } catch (e) {
@@ -1195,6 +1254,7 @@ class PetCubit extends Cubit<PetState> {
               .round()
               .clamp(0, 100),
       ultimaInteraccion: DateTime.now(),
+      ultimaComida: DateTime.now(),
     );
 
     emit(state.copyWith(mascota: despues));
@@ -1214,6 +1274,7 @@ class PetCubit extends Cubit<PetState> {
       accion: 'alimentar',
       extras: {'emoji_alimento': emojiAlimento ?? ''},
     );
+    await _reprogramarRecordatorioCuidado();
     await _verificarReacciones(despues);
   }
 
@@ -1250,6 +1311,7 @@ class PetCubit extends Cubit<PetState> {
           .round()
           .clamp(0, 100),
       ultimaInteraccion: DateTime.now(),
+      ultimoJuego: DateTime.now(),
     );
 
     emit(state.copyWith(mascota: despues));
@@ -1259,6 +1321,7 @@ class PetCubit extends Cubit<PetState> {
       accion: 'jugar',
       extras: {'emoji_juguete': emojiJuguete ?? ''},
     );
+    await _reprogramarRecordatorioCuidado();
     await _verificarReacciones(despues);
   }
 
@@ -1285,10 +1348,12 @@ class PetCubit extends Cubit<PetState> {
         100,
       ),
       ultimaInteraccion: DateTime.now(),
+      ultimoBano: DateTime.now(),
     );
 
     emit(state.copyWith(mascota: despues));
     await _guardarEnFirestore(antes: antes, despues: despues, accion: 'banar');
+    await _reprogramarRecordatorioCuidado();
     await _verificarReacciones(despues);
   }
 
@@ -1311,6 +1376,7 @@ class PetCubit extends Cubit<PetState> {
       accion: accion,
       extras: {'puntos_limpieza': puntos},
     );
+    await _reprogramarRecordatorioCuidado();
     await _verificarReacciones(despues);
   }
 
@@ -1341,10 +1407,12 @@ class PetCubit extends Cubit<PetState> {
               .round()
               .clamp(0, 100),
       ultimaInteraccion: DateTime.now(),
+      ultimaCuracion: DateTime.now(),
     );
 
     emit(state.copyWith(mascota: despues));
     await _guardarEnFirestore(antes: antes, despues: despues, accion: 'curar');
+    await _reprogramarRecordatorioCuidado();
     await _verificarReacciones(despues);
   }
 
@@ -1385,10 +1453,12 @@ class PetCubit extends Cubit<PetState> {
         100,
       ),
       ultimaInteraccion: DateTime.now(),
+      ultimoPaseo: DateTime.now(),
     );
 
     emit(state.copyWith(mascota: despues));
     await _guardarEnFirestore(antes: antes, despues: despues, accion: 'pasear');
+    await _reprogramarRecordatorioCuidado();
     await _verificarReacciones(despues);
   }
 
@@ -1469,5 +1539,13 @@ class PetCubit extends Cubit<PetState> {
       ticksEnergiaBaja: ticksEnergiaBajaNuevo,
       ultimaInteraccion: DateTime.now(),
     );
+  }
+
+  Future<void> _reprogramarRecordatorioCuidado() async {
+    try {
+      await NotificationService.instance.rescheduleCareReminderForCurrentUser();
+    } catch (error) {
+      debugPrint('Error recordatorio cuidado: $error');
+    }
   }
 }

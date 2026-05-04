@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../core/enums/personalidad_tipo.dart';
+
 class MascotaModel {
   // ── Atributos base ─────────────────────────────────────
   final String idMascota;
@@ -23,6 +25,11 @@ class MascotaModel {
   final String rasgo;
   final bool activa;
   final DateTime ultimaInteraccion;
+  final DateTime? ultimaComida;
+  final DateTime? ultimoJuego;
+  final DateTime? ultimoBano;
+  final DateTime? ultimaCuracion;
+  final DateTime? ultimoPaseo;
 
   // Motor de IA
   final bool deterioroAcelerado;
@@ -57,9 +64,14 @@ class MascotaModel {
     this.nivelLimpieza = 100,
     this.nivelAfecto = 100,
     this.estado = 'feliz',
-    this.rasgo = 'juguetón',
+    this.rasgo = 'Juguetón',
     this.activa = true,
     required this.ultimaInteraccion,
+    this.ultimaComida,
+    this.ultimoJuego,
+    this.ultimoBano,
+    this.ultimaCuracion,
+    this.ultimoPaseo,
     this.deterioroAcelerado = false,
     this.anomaliaDetectada = false,
     this.ticksEnergiaBaja = 0,
@@ -85,7 +97,7 @@ class MascotaModel {
     final data = snapshot.data() as Map<String, dynamic>;
 
     // Helper para leer Timestamp nullable
-    DateTime? _tsToDate(dynamic v) =>
+    DateTime? tsToDate(dynamic v) =>
         v == null ? null : (v as Timestamp).toDate();
 
     return MascotaModel(
@@ -98,26 +110,34 @@ class MascotaModel {
       nivelLimpieza: data['nivel_limpieza'] ?? 100,
       nivelAfecto: data['nivel_afecto'] ?? 100,
       estado: data['estado'] ?? 'feliz',
-      rasgo: data['rasgo'] ?? 'juguetón',
+      rasgo: PersonalidadTipo.fromString(data['rasgo']).toFirestoreString(),
       activa: data['activa'] ?? true,
-      ultimaInteraccion:
-          _tsToDate(data['ultima_interaccion']) ?? DateTime.now(),
+      ultimaInteraccion: tsToDate(data['ultima_interaccion']) ?? DateTime.now(),
+      ultimaComida: tsToDate(data['ultima_comida']),
+      ultimoJuego: tsToDate(data['ultimo_juego']),
+      ultimoBano: tsToDate(data['ultimo_bano']),
+      ultimaCuracion: tsToDate(data['ultima_curacion']),
+      ultimoPaseo: tsToDate(data['ultimo_paseo']),
       deterioroAcelerado: data['deterioro_acelerado'] ?? false,
-      anomaliaDetectada: data['anomalia_detectada'] ?? false,
+      anomaliaDetectada:
+          data['anomalia_detectada'] ??
+          data['anomaliaActiva'] ??
+          data['anomalia_activa'] ??
+          false,
       ticksEnergiaBaja: data['ticks_energia_baja'] ?? 0,
       nivelPlato: (data['nivel_plato'] ?? 0.0).toDouble(),
       platoAlimentoId: data['plato_alimento_id'] ?? '',
       platoEmoji: data['plato_emoji'] ?? '',
-      platoActualizado: _tsToDate(data['plato_actualizado']),
+      platoActualizado: tsToDate(data['plato_actualizado']),
       platoComiendo: data['plato_comiendo'] ?? false,
       itemCabezaId: data['item_cabeza_id'] ?? '',
       // Descanso
       estadoDescanso: data['estado_descanso'] ?? 'despierto',
-      inicioDescanso: _tsToDate(data['inicio_descanso']),
+      inicioDescanso: tsToDate(data['inicio_descanso']),
       tipoDescanso: data['tipo_descanso'] ?? '',
       energiaAlAcostar: data['energia_al_acostar'] ?? 0,
       buffEnergia: data['buff_energia'] ?? false,
-      buffExpira: _tsToDate(data['buff_expira']),
+      buffExpira: tsToDate(data['buff_expira']),
       cortinasAbiertas: data['cortinas_abiertas'] ?? true,
       tapsParaDespetarBase: data['taps_para_despertar'] ?? 4,
     );
@@ -134,11 +154,27 @@ class MascotaModel {
       'nivel_limpieza': nivelLimpieza,
       'nivel_afecto': nivelAfecto,
       'estado': estado,
-      'rasgo': rasgo,
+      'rasgo': personalidad.toFirestoreString(),
       'activa': activa,
       'ultima_interaccion': Timestamp.fromDate(ultimaInteraccion),
+      'ultima_comida': ultimaComida != null
+          ? Timestamp.fromDate(ultimaComida!)
+          : null,
+      'ultimo_juego': ultimoJuego != null
+          ? Timestamp.fromDate(ultimoJuego!)
+          : null,
+      'ultimo_bano': ultimoBano != null
+          ? Timestamp.fromDate(ultimoBano!)
+          : null,
+      'ultima_curacion': ultimaCuracion != null
+          ? Timestamp.fromDate(ultimaCuracion!)
+          : null,
+      'ultimo_paseo': ultimoPaseo != null
+          ? Timestamp.fromDate(ultimoPaseo!)
+          : null,
       'deterioro_acelerado': deterioroAcelerado,
       'anomalia_detectada': anomaliaDetectada,
+      'anomaliaActiva': anomaliaDetectada,
       'ticks_energia_baja': ticksEnergiaBaja,
       'nivel_plato': nivelPlato,
       'plato_alimento_id': platoAlimentoId,
@@ -177,6 +213,11 @@ class MascotaModel {
     String? rasgo,
     bool? activa,
     DateTime? ultimaInteraccion,
+    DateTime? ultimaComida,
+    DateTime? ultimoJuego,
+    DateTime? ultimoBano,
+    DateTime? ultimaCuracion,
+    DateTime? ultimoPaseo,
     bool? deterioroAcelerado,
     bool? anomaliaDetectada,
     int? ticksEnergiaBaja,
@@ -215,6 +256,11 @@ class MascotaModel {
       rasgo: rasgo ?? this.rasgo,
       activa: activa ?? this.activa,
       ultimaInteraccion: ultimaInteraccion ?? this.ultimaInteraccion,
+      ultimaComida: ultimaComida ?? this.ultimaComida,
+      ultimoJuego: ultimoJuego ?? this.ultimoJuego,
+      ultimoBano: ultimoBano ?? this.ultimoBano,
+      ultimaCuracion: ultimaCuracion ?? this.ultimaCuracion,
+      ultimoPaseo: ultimoPaseo ?? this.ultimoPaseo,
       deterioroAcelerado: deterioroAcelerado ?? this.deterioroAcelerado,
       anomaliaDetectada: anomaliaDetectada ?? this.anomaliaDetectada,
       ticksEnergiaBaja: ticksEnergiaBaja ?? this.ticksEnergiaBaja,
@@ -227,7 +273,9 @@ class MascotaModel {
           ? null
           : (platoActualizado ?? this.platoActualizado),
       platoComiendo: platoComiendo ?? this.platoComiendo,
-      itemCabezaId: clearItemCabezaId ? '' : (itemCabezaId ?? this.itemCabezaId),
+      itemCabezaId: clearItemCabezaId
+          ? ''
+          : (itemCabezaId ?? this.itemCabezaId),
       // Descanso — clearInicioDescanso permite poner null explícitamente
       estadoDescanso: estadoDescanso ?? this.estadoDescanso,
       inicioDescanso: clearInicioDescanso
@@ -250,6 +298,8 @@ class MascotaModel {
 
   bool get buffActivo =>
       buffEnergia && (buffExpira?.isAfter(DateTime.now()) ?? false);
+
+  PersonalidadTipo get personalidad => PersonalidadTipo.fromString(rasgo);
 
   String get estadoSuciedad {
     if (nivelLimpieza < 45) return 'manchas_fuertes';
