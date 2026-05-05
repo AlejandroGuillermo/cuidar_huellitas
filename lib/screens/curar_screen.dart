@@ -12,6 +12,7 @@ import '../cubit/pet_state.dart';
 import '../domain/enums/pet_activity.dart';
 import '../domain/enums/pet_location.dart';
 import '../widgets/paw_map_widget.dart';
+import '../widgets/pet_avatar_rive.dart';
 
 class CurarScreen extends StatefulWidget {
   const CurarScreen({super.key});
@@ -580,7 +581,16 @@ class _CurarScreenState extends State<CurarScreen>
                         color: Colors.white.withValues(alpha: 0.22),
                       ),
                     ),
-                    const Text('ðŸ¶', style: TextStyle(fontSize: 132)),
+                    BlocBuilder<PetCubit, PetState>(
+                      builder: (context, state) {
+                        return PetAvatarRive(
+                          tipoMascota: (state.mascota?.tipoMascota ?? 'perro')
+                              .toLowerCase(),
+                          width: 210,
+                          height: 210,
+                        );
+                      },
+                    ),
                     Positioned(
                       bottom: -8,
                       child: Container(

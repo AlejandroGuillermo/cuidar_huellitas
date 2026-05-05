@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../core/app_colors.dart';
 import '../cubit/pet_cubit.dart';
 import '../cubit/pet_state.dart';
+import '../widgets/pet_avatar_rive.dart';
 
 class LogrosScreen extends StatelessWidget {
   const LogrosScreen({super.key});
@@ -15,17 +16,17 @@ class LogrosScreen extends StatelessWidget {
         final mascota = state.mascota;
         final nombreMascota = mascota?.nombreMascota ?? 'Tu mascota';
         final tipoMascota = (mascota?.tipoMascota ?? 'perro').toLowerCase();
-        final petEmoji = tipoMascota == 'gato' ? '🐱' : '🐶';
+        final petEmoji = tipoMascota;
 
         final promedio = mascota == null
             ? 0
             : ((mascota.nivelSalud +
-                        mascota.nivelEnergia +
-                        mascota.nivelHambre +
-                        mascota.nivelLimpieza +
-                        mascota.nivelAfecto) /
-                    5)
-                .round();
+                          mascota.nivelEnergia +
+                          mascota.nivelHambre +
+                          mascota.nivelLimpieza +
+                          mascota.nivelAfecto) /
+                      5)
+                  .round();
         final streakDays = (promedio / 18).clamp(1, 7).round();
         final goalDays = 7;
         final progressToGoal = (streakDays / goalDays).clamp(0.0, 1.0);
@@ -47,7 +48,8 @@ class LogrosScreen extends StatelessWidget {
             title: 'Espacio limpio y seguro',
             description:
                 'Mantienes su entorno ordenado y eso mejora su bienestar diario.',
-            tip: 'La limpieza frecuente reduce estrés y refuerza hábitos sanos.',
+            tip:
+                'La limpieza frecuente reduce estrés y refuerza hábitos sanos.',
           ),
           _MissionData(
             icon: Icons.favorite_rounded,
@@ -190,10 +192,7 @@ class _HeroLogrosCard extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Colors.white.withValues(alpha: 0.96),
-            AppColors.verdeFondo,
-          ],
+          colors: [Colors.white.withValues(alpha: 0.96), AppColors.verdeFondo],
         ),
         boxShadow: [
           BoxShadow(
@@ -250,10 +249,7 @@ class _HeroLogrosCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   gradient: const LinearGradient(
-                    colors: [
-                      AppColors.verdeClaro,
-                      AppColors.verdePrincipal,
-                    ],
+                    colors: [AppColors.verdeClaro, AppColors.verdePrincipal],
                   ),
                   boxShadow: [
                     BoxShadow(
@@ -264,9 +260,10 @@ class _HeroLogrosCard extends StatelessWidget {
                   ],
                 ),
                 alignment: Alignment.center,
-                child: Text(
-                  petEmoji,
-                  style: const TextStyle(fontSize: 38),
+                child: PetAvatarRive(
+                  tipoMascota: petEmoji,
+                  width: 90,
+                  height: 90,
                 ),
               ),
             ],
@@ -422,9 +419,7 @@ class _StatHighlightCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: data.accent.withValues(alpha: 0.18),
-        ),
+        border: Border.all(color: data.accent.withValues(alpha: 0.18)),
         boxShadow: [
           BoxShadow(
             color: data.accent.withValues(alpha: 0.12),
@@ -443,10 +438,7 @@ class _StatHighlightCard extends StatelessWidget {
               color: data.accent.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(
-              data.icon,
-              color: data.accent,
-            ),
+            child: Icon(data.icon, color: data.accent),
           ),
           const SizedBox(height: 18),
           Text(
@@ -495,9 +487,7 @@ class _SectionCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(
-          color: AppColors.borde.withValues(alpha: 0.55),
-        ),
+        border: Border.all(color: AppColors.borde.withValues(alpha: 0.55)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.05),
@@ -549,14 +539,9 @@ class _MissionCard extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFFFFF9FB),
-            Colors.white,
-          ],
+          colors: [Color(0xFFFFF9FB), Colors.white],
         ),
-        border: Border.all(
-          color: AppColors.rosa.withValues(alpha: 0.18),
-        ),
+        border: Border.all(color: AppColors.rosa.withValues(alpha: 0.18)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -570,10 +555,7 @@ class _MissionCard extends StatelessWidget {
                   color: AppColors.rosa.withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(
-                  data.icon,
-                  color: AppColors.rosa,
-                ),
+                child: Icon(data.icon, color: AppColors.rosa),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -710,10 +692,7 @@ class _InsightsSection extends StatelessWidget {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            AppColors.azulPrincipal,
-            AppColors.azulClaro,
-          ],
+          colors: [AppColors.azulPrincipal, AppColors.azulClaro],
         ),
         borderRadius: BorderRadius.circular(30),
         boxShadow: [
@@ -737,9 +716,10 @@ class _InsightsSection extends StatelessWidget {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 alignment: Alignment.center,
-                child: Text(
-                  petEmoji,
-                  style: const TextStyle(fontSize: 24),
+                child: PetAvatarRive(
+                  tipoMascota: petEmoji,
+                  width: 52,
+                  height: 52,
                 ),
               ),
               const SizedBox(width: 12),
@@ -789,20 +769,14 @@ class _InsightCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.10),
-        ),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Padding(
             padding: EdgeInsets.only(top: 1),
-            child: Icon(
-              Icons.pets_rounded,
-              size: 18,
-              color: Colors.white,
-            ),
+            child: Icon(Icons.pets_rounded, size: 18, color: Colors.white),
           ),
           const SizedBox(width: 10),
           Expanded(

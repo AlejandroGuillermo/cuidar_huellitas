@@ -21,6 +21,7 @@ import '../domain/enums/pet_activity.dart';
 import '../domain/enums/pet_location.dart';
 import '../widgets/action_screen_header.dart';
 import '../widgets/paw_map_widget.dart';
+import '../widgets/pet_avatar_rive.dart';
 
 class AlimentarScreen extends StatefulWidget {
   const AlimentarScreen({super.key});
@@ -1047,9 +1048,7 @@ class _AlimentarScreenState extends State<AlimentarScreen>
 
     return BlocBuilder<PetCubit, PetState>(
       builder: (context, state) {
-        final petEmoji = (state.mascota?.tipoMascota ?? 'perro') == 'gato'
-            ? '🐱'
-            : '🐶';
+        final petEmoji = (state.mascota?.tipoMascota ?? 'perro').toLowerCase();
         final headItemEmoji = CosmeticCatalog.headEmojiFor(
           state.mascota?.itemCabezaId,
         );
@@ -1093,7 +1092,11 @@ class _AlimentarScreenState extends State<AlimentarScreen>
                         clipBehavior: Clip.none,
                         alignment: Alignment.center,
                         children: [
-                          Text(petEmoji, style: TextStyle(fontSize: petSize)),
+                          PetAvatarRive(
+                            tipoMascota: petEmoji,
+                            width: petSize + 46,
+                            height: petSize + 46,
+                          ),
                           if (headItemEmoji != null)
                             Positioned(
                               top: compact ? -8 : -10,

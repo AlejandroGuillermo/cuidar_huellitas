@@ -12,6 +12,7 @@ import '../domain/enums/pet_location.dart';
 import '../widgets/action_screen_header.dart';
 import '../widgets/paw_map_widget.dart';
 import '../widgets/banar/soap_tool_widget.dart';
+import '../widgets/pet_avatar_rive.dart';
 
 class BanarScreen extends StatefulWidget {
   const BanarScreen({super.key});
@@ -1029,10 +1030,10 @@ class _BanarScreenState extends State<BanarScreen>
           alignment: Alignment.center,
           children: [
             if (_soapBubblesActive) ..._buildSoapBubbles(tubWidth, tubHeight),
-            Text(
-              _petEmoji(),
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: tubWidth * 0.28),
+            PetAvatarRive(
+              tipoMascota: _tipoMascotaActual(),
+              width: tubWidth * 0.46,
+              height: tubWidth * 0.46,
             ),
           ],
         ),
@@ -1106,7 +1107,11 @@ class _BanarScreenState extends State<BanarScreen>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(_petEmoji(), style: TextStyle(fontSize: size.width * 0.18)),
+          PetAvatarRive(
+            tipoMascota: _tipoMascotaActual(),
+            width: size.width * 0.30,
+            height: size.width * 0.30,
+          ),
           const SizedBox(height: 4),
           Container(
             width: size.width * 0.12,
@@ -1121,9 +1126,8 @@ class _BanarScreenState extends State<BanarScreen>
     );
   }
 
-  String _petEmoji() {
-    final isCat = context.read<PetCubit>().state.mascota?.tipoMascota == 'gato';
-    return isCat ? '\u{1F431}' : '\u{1F436}';
+  String _tipoMascotaActual() {
+    return context.read<PetCubit>().state.mascota?.tipoMascota ?? 'perro';
   }
 
   Widget _buildHintCard(bool canShowPet) {

@@ -1,6 +1,7 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:rive/rive.dart' as rive;
 
 import 'application/cubits/mission_cubit.dart';
 import 'application/cubits/pet_world_cubit.dart';
@@ -23,6 +24,7 @@ import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await rive.RiveNative.init();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await NotificationService.instance.init();
   runApp(const MyApp());
@@ -290,7 +292,8 @@ class MyApp extends StatelessWidget {
   }
 
   bool _shouldShowDisasterOverlay(String path) {
-    return !(path == AppRoutes.login ||
+    return !(path == AppRoutes.splash ||
+        path == AppRoutes.login ||
         path == AppRoutes.register ||
         path == AppRoutes.adopcion);
   }

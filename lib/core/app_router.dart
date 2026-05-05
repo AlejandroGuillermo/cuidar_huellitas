@@ -12,12 +12,14 @@ import '../screens/dormir_screen.dart';
 import '../screens/banar_screen.dart';
 import '../screens/logros_screen.dart';
 import '../screens/retos_screen.dart' show RetosScreen;
+import '../screens/splash_screen.dart';
 import '../screens/tienda_screen.dart';
 
 // ── Nombres de rutas como constantes ──────────────────────
 // Siempre usa estas constantes en lugar de strings sueltos.
 // Si renombras una ruta, solo cambias aquí y funciona en toda la app.
 class AppRoutes {
+  static const splash = '/splash';
   static const login = '/login';
   static const register = '/register';
   static const adopcion = '/adopcion';
@@ -36,7 +38,7 @@ class AppRoutes {
 
 // ── Router principal ───────────────────────────────────────
 final appRouter = GoRouter(
-  initialLocation: AppRoutes.login,
+  initialLocation: AppRoutes.splash,
 
   // ── Redirect global ──────────────────────────────────────
   // Aquí decides a dónde va el usuario según su estado.
@@ -55,6 +57,11 @@ final appRouter = GoRouter(
 
   routes: [
     // ── Rutas sin nav bar ──────────────────────────────────
+    GoRoute(
+      path: AppRoutes.splash,
+      name: 'splash',
+      builder: (context, state) => const SplashScreen(),
+    ),
     GoRoute(
       path: AppRoutes.login,
       name: 'login',

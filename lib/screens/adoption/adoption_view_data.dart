@@ -40,7 +40,7 @@ const opcionesMascotaAdopcion = <OpcionMascotaAdopcion>[
   OpcionMascotaAdopcion(
     id: 'perro',
     nombre: 'Perro',
-    emoji: '🐶',
+    emoji: '',
     etiqueta: 'Leal, activo y muy expresivo',
     descripcion: 'Ideal si quieres una energia mas juguetona.',
     colorAcentoValor: 0xFF6F88E8,
@@ -49,7 +49,7 @@ const opcionesMascotaAdopcion = <OpcionMascotaAdopcion>[
   OpcionMascotaAdopcion(
     id: 'gato',
     nombre: 'Gato',
-    emoji: '🐱',
+    emoji: '',
     etiqueta: 'Curioso, sereno e independiente',
     descripcion: 'Perfecto si buscas una compania tranquila.',
     colorAcentoValor: 0xFFF07A94,

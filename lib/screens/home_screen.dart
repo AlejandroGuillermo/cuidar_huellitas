@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:cuidar_huellitas/application/cubits/mission_cubit.dart';
 import 'package:cuidar_huellitas/application/cubits/pet_world_cubit.dart';
 import 'package:cuidar_huellitas/cubit/pet_state.dart';
@@ -15,6 +15,7 @@ import '../core/app_router.dart';
 import '../core/cosmetic_catalog.dart';
 import '../widgets/paw_map_widget.dart';
 import '../widgets/header_widget.dart';
+import '../widgets/pet_avatar_rive.dart';
 
 // --- Pantalla Principal ---
 class HomeScreen extends StatefulWidget {
@@ -133,9 +134,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           );
         }
 
-        final petEmoji = mascota.tipoMascota.toLowerCase() == 'gato'
-            ? '🐱'
-            : '🐶';
+        final petEmoji = mascota.tipoMascota.toLowerCase();
 
         final headItemEmoji = CosmeticCatalog.headEmojiFor(
           mascota.itemCabezaId,
@@ -292,12 +291,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                             clipBehavior: Clip.none,
                                             alignment: Alignment.topCenter,
                                             children: [
-                                              Text(
-                                                petEmoji,
-                                                style: const TextStyle(
-                                                  fontSize: 150,
-                                                  height: 1.0,
-                                                ),
+                                              PetAvatarRive(
+                                                tipoMascota: petEmoji,
+                                                width: 260,
+                                                height: 260,
                                               ),
                                               if (headItemEmoji != null)
                                                 Positioned(

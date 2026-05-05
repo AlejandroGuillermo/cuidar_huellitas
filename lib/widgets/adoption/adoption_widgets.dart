@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_colors.dart';
 import '../../screens/adoption/adoption_view_data.dart';
+import '../pet_avatar_rive.dart';
 
 class BarraHeaderAdopcion extends StatelessWidget {
   const BarraHeaderAdopcion({super.key, required this.alRegresar});
@@ -232,9 +233,10 @@ class SelectorTipoAdopcion extends StatelessWidget {
                     children: [
                       Row(
                         children: [
-                          Text(
-                            opcion.emoji,
-                            style: const TextStyle(fontSize: 34),
+                          PetAvatarRive(
+                            tipoMascota: opcion.id,
+                            width: 56,
+                            height: 56,
                           ),
                           const Spacer(),
                           AnimatedContainer(
@@ -942,9 +944,10 @@ class SeccionResumenAdopcion extends StatelessWidget {
                             ),
                           ),
                         ),
-                        Text(
-                          emojiMascota,
-                          style: const TextStyle(fontSize: 112, height: 1),
+                        PetAvatarRive(
+                          tipoMascota: emojiMascota,
+                          width: 168,
+                          height: 168,
                         ),
                       ],
                     ),
@@ -1229,9 +1232,10 @@ class _EscenarioMascota extends StatelessWidget {
                           child: child,
                         );
                       },
-                      child: Text(
-                        mascota.emoji,
-                        style: const TextStyle(fontSize: 132, height: 1),
+                      child: PetAvatarRive(
+                        tipoMascota: mascota.id,
+                        width: 190,
+                        height: 190,
                       ),
                     ),
                   ],

@@ -12,6 +12,7 @@ import '../domain/enums/pet_activity.dart';
 import '../domain/enums/pet_location.dart';
 import '../widgets/paw_map_widget.dart';
 import '../widgets/action_screen_header.dart';
+import '../widgets/pet_avatar_rive.dart';
 
 // ── Modelo de juguete ──────────────────────────────────────
 class Toy {
@@ -19,8 +20,8 @@ class Toy {
   final String emoji;
   final String name;
   final Color color;
-  final int afectoBonus;   // cuánto sube el afecto al jugar
-  final int energiaCosto;  // cuánta energía consume
+  final int afectoBonus; // cuánto sube el afecto al jugar
+  final int energiaCosto; // cuánta energía consume
 
   const Toy({
     required this.id,
@@ -651,7 +652,11 @@ class _JugarScreenState extends State<JugarScreen>
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(30),
           ),
-          child: const Icon(Icons.pets, color: AppColors.azulPrincipal, size: 28),
+          child: const Icon(
+            Icons.pets,
+            color: AppColors.azulPrincipal,
+            size: 28,
+          ),
         ),
 
         // 2. Quitamos el GestureDetector, el Stack y el Transform.
@@ -795,11 +800,13 @@ class _JugarScreenState extends State<JugarScreen>
                 children: [
                   BlocBuilder<PetCubit, PetState>(
                     builder: (context, state) {
-                      final emoji =
-                          (state.mascota?.tipoMascota ?? 'perro') == 'gato'
-                          ? '🐱'
-                          : '🐶';
-                      return Text(emoji, style: const TextStyle(fontSize: 72));
+                      final tipoMascota =
+                          (state.mascota?.tipoMascota ?? 'perro').toLowerCase();
+                      return PetAvatarRive(
+                        tipoMascota: tipoMascota,
+                        width: 132,
+                        height: 132,
+                      );
                     },
                   ),
                   // Juguete encima si la mascota lo tiene

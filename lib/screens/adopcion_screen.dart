@@ -241,7 +241,7 @@ class _AdopcionScreenState extends State<AdopcionScreen>
                                     ? 'Sin nombre'
                                     : _nombreActual,
                                 tipoMascota: _mascotaSeleccionada.nombre,
-                                emojiMascota: _mascotaSeleccionada.emoji,
+                                emojiMascota: _mascotaSeleccionada.id,
                                 personalidadSeleccionada:
                                     _mapaPersonalidadSeleccionada,
                               ),
