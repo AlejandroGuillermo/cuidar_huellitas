@@ -4,6 +4,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/app_colors.dart';
+
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -108,18 +110,20 @@ class _SplashScreenState extends State<SplashScreen>
 
   Widget _buildBackground(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final lightA = const Color(0xFFF0FFF0);
-    final darkA = const Color(0xFF0D1F0D);
     final gradientColors = isDark
-        ? [darkA, const Color(0xFF111111), const Color(0xFF130D1F)]
-        : [lightA, const Color(0xFFFFFFFF), const Color(0xFFF5F0FF)];
+        ? [
+            AppColors.splashDarkBase,
+            AppColors.splashDarkMid,
+            AppColors.splashDarkAccent,
+          ]
+        : [AppColors.verdeFondo, AppColors.fondoBlanco, AppColors.azulFondo];
 
-    final bubbleGreen = const Color(
-      0xFF8AE670,
-    ).withValues(alpha: isDark ? 0.10 : 0.22);
-    final bubbleBlue = const Color(
-      0xFF708BE6,
-    ).withValues(alpha: isDark ? 0.12 : 0.18);
+    final bubbleGreen = AppColors.verdePrincipal.withValues(
+      alpha: isDark ? 0.10 : 0.22,
+    );
+    final bubbleBlue = AppColors.azulPrincipal.withValues(
+      alpha: isDark ? 0.12 : 0.18,
+    );
 
     return Positioned.fill(
       child: Stack(
@@ -166,20 +170,20 @@ class _SplashScreenState extends State<SplashScreen>
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final width = MediaQuery.of(context).size.width;
     final cardSize = (width * 0.46).clamp(145.0, 210.0);
-    final phoneColor = const Color(0xFF708BE6);
-    final pawColor = const Color(0xFFF07A94);
+    final phoneColor = AppColors.azulPrincipal;
+    final pawColor = AppColors.rosa;
 
     return Container(
       width: cardSize,
       height: cardSize,
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E2A1E) : Colors.white,
+        color: isDark ? AppColors.splashCardDark : AppColors.fondoBlanco,
         borderRadius: BorderRadius.circular(42),
         boxShadow: [
           BoxShadow(
             color: isDark
                 ? Colors.black.withValues(alpha: 0.5)
-                : const Color(0xFF8AE670).withValues(alpha: 0.22),
+                : AppColors.verdePrincipal.withValues(alpha: 0.22),
             blurRadius: 32,
             spreadRadius: 1,
             offset: const Offset(0, 14),
@@ -247,10 +251,10 @@ class _SplashScreenState extends State<SplashScreen>
 
   Widget _buildText(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final titleColor = isDark ? Colors.white : const Color(0xFF263426);
+    final titleColor = isDark ? Colors.white : AppColors.splashTitleLight;
     final subtitleColor = isDark
         ? Colors.white.withValues(alpha: 0.78)
-        : const Color(0xFF5A6A5A);
+        : AppColors.splashSubtitleLight;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -280,7 +284,7 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Widget _buildSpinner(BuildContext context) {
-    final spinnerColor = const Color(0xFF8AE670);
+    final spinnerColor = AppColors.verdePrincipal;
     return SizedBox(
       width: 26,
       height: 26,
