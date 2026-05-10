@@ -6,17 +6,22 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'pet_state.dart';
 import '../Models/mascota_model.dart';
+import '../application/services/pet_ai_engine.dart';
 import '../application/services/notification_service.dart';
 import '../core/personality_config.dart';
 import '../core/disaster_system.dart';
 import '../core/enums/personalidad_tipo.dart';
+import '../core/enums/pet_need.dart';
 import '../core/food_catalog.dart';
 import '../data/repositories/inventory_repository.dart';
+import '../data/repositories/pet_repository.dart';
 
 class PetCubit extends Cubit<PetState> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final InventoryRepository _inventoryRepository = InventoryRepository();
+  final PetRepository _petRepository;
+  final PetAiEngine _petAiEngine;
   final Random _random = Random();
   Timer? _deterioroTimer;
   Timer? _platoComidaTimer;
@@ -34,7 +39,10 @@ class PetCubit extends Cubit<PetState> {
 
   DisasterCubit? disasterCubit;
 
-  PetCubit() : super(PetState(isLoading: true));
+  PetCubit({required PetAiEngine petAiEngine, PetRepository? petRepository})
+    : _petAiEngine = petAiEngine,
+      _petRepository = petRepository ?? PetRepository(),
+      super(PetState(isLoading: true));
 
   int _umbralBuffPorDescanso(String tipoDescanso) {
     return tipoDescanso == 'siesta' ? 10 : 20;
@@ -77,6 +85,7 @@ class PetCubit extends Cubit<PetState> {
         final comioOffline = await sincronizarPlatoOffline();
         await _evaluarMisionRecogerComidaOffline(comioOffline);
         _iniciarComidaPlatoOnlineSiAplica();
+        await disasterCubit?.verificarDesastre(mascota.idMascota);
       } else {
         _detenerDeterioroOnline();
         _detenerComidaPlatoOnline();
@@ -1230,7 +1239,11 @@ class PetCubit extends Cubit<PetState> {
   // ACCIONES DEL JUEGO
   // ══════════════════════════════════════════════════════
 
-  Future<void> alimentar(int puntosBase, {String? emojiAlimento}) async {
+  Future<void> alimentar(
+    int puntosBase, {
+    String? emojiAlimento,
+    bool skipDisasterRoll = false,
+  }) async {
     final antes = state.mascota;
     if (antes == null) return;
     final config = PersonalityRegistry.get(antes.rasgo);
@@ -1259,7 +1272,9 @@ class PetCubit extends Cubit<PetState> {
 
     emit(state.copyWith(mascota: despues));
 
-    if ((mod?.alimentarPuedeTirar ?? false) && _random.nextDouble() < 0.3) {
+    if (!skipDisasterRoll &&
+        (mod?.alimentarPuedeTirar ?? false) &&
+        _random.nextDouble() < 0.3) {
       await disasterCubit?.generarDesastre(
         mascotaId: antes.idMascota,
         tipo: DisasterType.comida,
@@ -1468,7 +1483,17 @@ class PetCubit extends Cubit<PetState> {
       return; // no deteriorar si descansa
     }
 
-    final despues = _calcularDeterioro(antes, factorExtra: factorExtra);
+    final previewDecision = _petAiEngine.evaluate(antes);
+    final despuesBase = _calcularDeterioro(
+      antes,
+      factorExtra: factorExtra * previewDecision.deterioroRate,
+    );
+    final decision = _petAiEngine.evaluate(despuesBase);
+    final despues = despuesBase.copyWith(
+      deterioroRate: decision.deterioroRate,
+      anomaliaActiva: antes.anomaliaActiva,
+      estadoEmocional: decision.emotion.toFirestoreString(),
+    );
 
     emit(state.copyWith(mascota: despues));
     await _guardarEnFirestore(
@@ -1476,6 +1501,8 @@ class PetCubit extends Cubit<PetState> {
       despues: despues,
       accion: 'deterioro',
     );
+    await _persistirDecisionAi(despues, decision.deterioroRate);
+    await _aplicarMisionBasicaPorNecesidad(despues, decision.needPriority);
     await _verificarReacciones(despues);
   }
 
@@ -1485,9 +1512,7 @@ class PetCubit extends Cubit<PetState> {
   }) {
     final config = PersonalityRegistry.get(mascota.rasgo);
     final dec = config?.deterioro;
-    final factor =
-        (mascota.anomaliaDetectada ? (dec?.anomaliaFactor ?? 5.0) : 1.0) *
-        factorExtra;
+    final factor = factorExtra;
 
     // Buff activo: energia cae a la mitad
     final factorEnergia = mascota.buffActivo ? 0.5 : 1.0;
@@ -1547,5 +1572,42 @@ class PetCubit extends Cubit<PetState> {
     } catch (error) {
       debugPrint('Error recordatorio cuidado: $error');
     }
+  }
+
+  Future<void> _persistirDecisionAi(
+    MascotaModel mascota,
+    double deterioroRate,
+  ) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    try {
+      await _petRepository.updatePetFields(userId, mascota.idMascota, {
+        'deterioro_rate': deterioroRate,
+        'anomalia_activa': mascota.anomaliaActiva,
+        'estado_emocional': mascota.estadoEmocional,
+      });
+    } catch (error) {
+      debugPrint('Error persistiendo decision AI: $error');
+    }
+  }
+
+  Future<void> _aplicarMisionBasicaPorNecesidad(
+    MascotaModel mascota,
+    PetNeed needPriority,
+  ) async {
+    if (needPriority == PetNeed.none) return;
+
+    final missionId = switch (needPriority) {
+      PetNeed.health => 'cuidar_salud',
+      PetNeed.hunger => 'alimentar_urgente',
+      PetNeed.energy => 'descansar_urgente',
+      PetNeed.hygiene => 'limpiar_urgente',
+      PetNeed.affection => 'jugar_urgente',
+      PetNeed.none => null,
+    };
+
+    if (missionId == null) return;
+    await _crearMisionActiva(missionId, mascota.idMascota);
   }
 }

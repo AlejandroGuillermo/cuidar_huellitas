@@ -8,6 +8,7 @@ import '../application/cubits/pet_world_cubit.dart';
 import '../core/app_colors.dart';
 import '../cubit/pet_cubit.dart';
 import '../cubit/pet_state.dart';
+import '../data/repositories/user_repository.dart';
 import '../domain/enums/pet_activity.dart';
 import '../domain/enums/pet_location.dart';
 import '../widgets/paw_map_widget.dart';
@@ -37,16 +38,32 @@ class _ToyInPlay {
   final String playId;
   final Toy toy;
   final Offset pos;
+  final String? disasterDocId;
 
   const _ToyInPlay({
     required this.playId,
     required this.toy,
     required this.pos,
+    this.disasterDocId,
   });
 
-  _ToyInPlay copyWith({Offset? pos}) {
-    return _ToyInPlay(playId: playId, toy: toy, pos: pos ?? this.pos);
+  bool get isDisasterToy => disasterDocId != null;
+
+  _ToyInPlay copyWith({Offset? pos, String? disasterDocId}) {
+    return _ToyInPlay(
+      playId: playId,
+      toy: toy,
+      pos: pos ?? this.pos,
+      disasterDocId: disasterDocId ?? this.disasterDocId,
+    );
   }
+}
+
+class _ToyDisasterDoc {
+  final String id;
+  final List<String> toyIds;
+
+  const _ToyDisasterDoc({required this.id, required this.toyIds});
 }
 
 // ── Pantalla de Jugar ──────────────────────────────────────
@@ -59,6 +76,10 @@ class JugarScreen extends StatefulWidget {
 
 class _JugarScreenState extends State<JugarScreen>
     with TickerProviderStateMixin {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final UserRepository _userRepository = UserRepository();
+
   // Lista de juguetes disponibles
   final List<Toy> toys = [
     Toy(
@@ -122,6 +143,8 @@ class _JugarScreenState extends State<JugarScreen>
   bool _mostrando = false; // caja de juguetes abierta
   bool _enCooldown = false;
   bool _segundoJugueteYaGenerado = false;
+  bool _hayDesastreJuguetes = false;
+  final Map<String, _ToyDisasterDoc> _toyDisastersByDoc = {};
 
   // ── Animaciones ────────────────────────────────────────
   late AnimationController _petController;
@@ -173,6 +196,7 @@ class _JugarScreenState extends State<JugarScreen>
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _syncWorldEntry();
+      await _cargarDesastreJuguetesPendiente();
       _hydrateOfflinePlayFromWorld();
     });
   }
@@ -186,6 +210,84 @@ class _JugarScreenState extends State<JugarScreen>
       location: PetLocation.jugar,
       fallbackActivity: PetActivity.idle,
     );
+  }
+
+  Future<void> _cargarDesastreJuguetesPendiente() async {
+    if (!mounted) return;
+    final userId = _auth.currentUser?.uid;
+    final mascotaId = context.read<PetCubit>().state.mascota?.idMascota;
+    if (userId == null || mascotaId == null) return;
+    final size = MediaQuery.of(context).size;
+
+    final snap = await _firestore
+        .collection('usuarios')
+        .doc(userId)
+        .collection('mascotas')
+        .doc(mascotaId)
+        .collection('desastres_pendientes')
+        .where('recogido', isEqualTo: false)
+        .where('tipo', isEqualTo: 'juguete')
+        .get();
+
+    final disasterDocs = <_ToyDisasterDoc>[];
+    final toysFromDisaster = <_ToyInPlay>[];
+    final leftMin = (_cajaRect.right + 30)
+        .clamp(20.0, size.width - 90.0)
+        .toDouble();
+    final leftMax = (size.width - 60)
+        .clamp(leftMin, size.width - 20.0)
+        .toDouble();
+    final topMin = (_cajaRect.bottom + 30)
+        .clamp(110.0, size.height - 220.0)
+        .toDouble();
+    final topMax = (size.height - 180)
+        .clamp(topMin, size.height - 120.0)
+        .toDouble();
+
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      final rawToyIds = (data['toy_ids'] as List<dynamic>? ?? const [])
+          .whereType<String>()
+          .toList();
+      final quantity = (data['cantidad'] as int?) ?? rawToyIds.length;
+      final toyIds = rawToyIds.isNotEmpty
+          ? rawToyIds
+          : _fallbackToyIds(quantity);
+      disasterDocs.add(_ToyDisasterDoc(id: doc.id, toyIds: toyIds));
+
+      for (final toyId in toyIds) {
+        final toy = _toyByWorldId(toyId);
+        toysFromDisaster.add(
+          _ToyInPlay(
+            playId: _nuevoToyPlayId(toy),
+            toy: toy,
+            disasterDocId: doc.id,
+            pos: Offset(
+              _randomDouble(leftMin, leftMax),
+              _randomDouble(topMin, topMax),
+            ),
+          ),
+        );
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _toyDisastersByDoc
+        ..clear()
+        ..addEntries(disasterDocs.map((doc) => MapEntry(doc.id, doc)));
+      _hayDesastreJuguetes = toysFromDisaster.isNotEmpty;
+      if (_hayDesastreJuguetes) {
+        _toysEnCampo
+          ..clear()
+          ..addAll(toysFromDisaster);
+        _toyObjetivoId = null;
+        _toyEnBocaId = null;
+        _mostrando = false;
+        _progresoQuitar = 0;
+        _segundoJugueteYaGenerado = true;
+      }
+    });
   }
 
   Toy _toyByWorldId(String? rawId) {
@@ -212,6 +314,7 @@ class _JugarScreenState extends State<JugarScreen>
 
   void _hydrateOfflinePlayFromWorld() {
     if (!mounted) return;
+    if (_hayDesastreJuguetes) return;
     if (_toyEnBocaId != null) return;
 
     final world = context.read<PetWorldCubit>().state;
@@ -313,6 +416,7 @@ class _JugarScreenState extends State<JugarScreen>
   }
 
   void _programarSegundoJugueteSiAplica() {
+    if (_hayDesastreJuguetes) return;
     _segundoJugueteTimer?.cancel();
     if (_segundoJugueteYaGenerado || _toysEnCampo.length != 1) return;
 
@@ -324,7 +428,10 @@ class _JugarScreenState extends State<JugarScreen>
   }
 
   void _generarSegundoJuguete() {
-    if (!mounted || _segundoJugueteYaGenerado || _toysEnCampo.length != 1) {
+    if (!mounted ||
+        _hayDesastreJuguetes ||
+        _segundoJugueteYaGenerado ||
+        _toysEnCampo.length != 1) {
       return;
     }
 
@@ -388,6 +495,7 @@ class _JugarScreenState extends State<JugarScreen>
 
   // ── Seleccionar juguete de la caja ─────────────────────
   void _seleccionarJuguete(Toy toy) {
+    if (_hayDesastreJuguetes) return;
     _segundoJugueteTimer?.cancel();
     setState(() {
       _toysEnCampo
@@ -410,6 +518,7 @@ class _JugarScreenState extends State<JugarScreen>
 
   // ── La mascota persigue el juguete ─────────────────────
   void _iniciarPersecucion() {
+    if (_hayDesastreJuguetes) return;
     if (_enCooldown) return;
     _chaseTimer?.cancel();
     _chaseTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
@@ -493,13 +602,13 @@ class _JugarScreenState extends State<JugarScreen>
     });
   }
 
-  void _onToyDragEnd(String playId, DragEndDetails details) {
+  Future<void> _onToyDragEnd(String playId, DragEndDetails details) async {
     final toy = _toyEnCampoPorId(playId);
     if (toy == null) return;
 
     // Verificar si se soltó en la caja
     if (_cajaRect.contains(toy.pos)) {
-      _guardarJugueteEnCaja(playId);
+      await _guardarJugueteEnCaja(playId);
       return;
     }
 
@@ -509,7 +618,7 @@ class _JugarScreenState extends State<JugarScreen>
   }
 
   // ── Guardar juguete en la caja ─────────────────────────
-  void _guardarJugueteEnCaja(String playId) {
+  Future<void> _guardarJugueteEnCaja(String playId) async {
     final toyInPlay = _toyEnCampoPorId(playId);
     if (toyInPlay == null) return;
     final removingFromMouth = _toyEnBocaId == playId;
@@ -536,6 +645,14 @@ class _JugarScreenState extends State<JugarScreen>
     // Guardar jugada en Firestore
     _guardarJugadaEnFirestore(toyInPlay.toy, completada: true);
 
+    if (toyInPlay.isDisasterToy) {
+      await _guardarJugueteDeDesastre(
+        toyInPlay.disasterDocId!,
+        toyInPlay.toy.id,
+        toyInPlay.toy.name,
+      );
+    }
+
     if (_toysEnCampo.isNotEmpty && _toyEnBocaId == null) {
       _iniciarPersecucion();
     }
@@ -543,6 +660,7 @@ class _JugarScreenState extends State<JugarScreen>
 
   // ── Mantener presionado para quitar ───────────────────
   void _onPetLongPressStart(LongPressStartDetails _) {
+    if (_hayDesastreJuguetes) return;
     if (_toyEnBocaId == null) return;
     _quitarTimer = Timer.periodic(const Duration(milliseconds: 80), (timer) {
       setState(() {
@@ -635,6 +753,123 @@ class _JugarScreenState extends State<JugarScreen>
     } catch (e) {
       debugPrint('Error guardando jugada: $e');
     }
+  }
+
+  Future<void> _guardarJugueteDeDesastre(
+    String disasterDocId,
+    String toyId,
+    String toyName,
+  ) async {
+    try {
+      final userId = _auth.currentUser?.uid;
+      final mascotaId = context.read<PetCubit>().state.mascota?.idMascota;
+      if (userId == null || mascotaId == null) return;
+
+      final disasterRef = _firestore
+          .collection('usuarios')
+          .doc(userId)
+          .collection('mascotas')
+          .doc(mascotaId)
+          .collection('desastres_pendientes')
+          .doc(disasterDocId);
+
+      final doc = _toyDisastersByDoc[disasterDocId];
+      final restantes = List<String>.from(doc?.toyIds ?? const []);
+      restantes.remove(toyId);
+
+      await disasterRef.set({
+        'toy_ids': restantes,
+        'cantidad': restantes.length,
+        'recogido': restantes.isEmpty,
+        if (restantes.isEmpty) 'fecha_recogido': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (restantes.isEmpty) {
+        _toyDisastersByDoc.remove(disasterDocId);
+      } else {
+        _toyDisastersByDoc[disasterDocId] = _ToyDisasterDoc(
+          id: disasterDocId,
+          toyIds: restantes,
+        );
+      }
+
+      if (_toysEnCampo.where((toy) => toy.isDisasterToy).isEmpty) {
+        setState(() => _hayDesastreJuguetes = false);
+        await _completarMisionesRecogerJuguetes(mascotaId, userId);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Guardaste todos los juguetes fuera de la caja. Mision completada.',
+              ),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Guardaste $toyName en la caja.'),
+            duration: const Duration(milliseconds: 1200),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error guardando juguete de desastre: $e');
+    }
+  }
+
+  Future<void> _completarMisionesRecogerJuguetes(
+    String mascotaId,
+    String userId,
+  ) async {
+    try {
+      final misionesRef = _firestore
+          .collection('usuarios')
+          .doc(userId)
+          .collection('mascotas')
+          .doc(mascotaId)
+          .collection('misiones_activas');
+
+      final pending = await misionesRef
+          .where('estado', isEqualTo: 'pendiente')
+          .get();
+      final ahora = Timestamp.now();
+      final batch = _firestore.batch();
+      var coinsGanadas = 0;
+      var tieneCambios = false;
+
+      for (final doc in pending.docs) {
+        final data = doc.data();
+        final tipo = ((data['tipo'] as String?) ?? doc.id).toLowerCase();
+        if (!tipo.contains('juguete')) continue;
+
+        coinsGanadas += ((data['reward_coins'] as num?)?.toInt() ?? 5);
+        batch.update(doc.reference, {
+          'estado': 'completada',
+          'fecha_completada': ahora,
+        });
+        tieneCambios = true;
+      }
+
+      if (tieneCambios) {
+        await batch.commit();
+        await _userRepository.addCoins(userId, coinsGanadas);
+      }
+    } catch (e) {
+      debugPrint('Error completando mision de juguetes: $e');
+    }
+  }
+
+  List<String> _fallbackToyIds(int cantidad) {
+    final ids = toys.map((toy) => toy.id).toList()..shuffle(_random);
+    final safeCount = cantidad.clamp(0, ids.length).toInt();
+    return ids.take(safeCount).toList();
+  }
+
+  double _randomDouble(double min, double max) {
+    if (max <= min) return min;
+    return min + (_random.nextDouble() * (max - min));
   }
 
   @override
@@ -746,6 +981,29 @@ class _JugarScreenState extends State<JugarScreen>
             ),
           ),
         ),
+
+        if (_hayDesastreJuguetes)
+          Positioned(
+            top: 72,
+            right: 12,
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 220),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.94),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0xFFDCE8FF)),
+              ),
+              child: const Text(
+                'Guarda en la caja los juguetes que quedaron fuera.',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF4A5E9E),
+                ),
+              ),
+            ),
+          ),
 
         // Juguetes arrastrables (puede haber más de uno afuera)
         ..._toysEnCampo
@@ -934,7 +1192,7 @@ class _JugarScreenState extends State<JugarScreen>
         ),
 
         // Caja de juguetes abierta (overlay)
-        if (_mostrando) _buildToySelector(),
+        if (_mostrando && !_hayDesastreJuguetes) _buildToySelector(),
       ],
     );
   }
@@ -1053,7 +1311,10 @@ class _JugarScreenState extends State<JugarScreen>
       left: 12,
       top: 60,
       child: GestureDetector(
-        onTap: () => setState(() => _mostrando = !_mostrando),
+        onTap: () {
+          if (_hayDesastreJuguetes) return;
+          setState(() => _mostrando = !_mostrando);
+        },
         child: Container(
           width: 105,
           height: 85,
@@ -1078,7 +1339,9 @@ class _JugarScreenState extends State<JugarScreen>
               const Text('🎁', style: TextStyle(fontSize: 34)),
               const SizedBox(height: 4),
               Text(
-                _mostrando ? 'Cerrar' : 'Juguetes',
+                _hayDesastreJuguetes
+                    ? 'Guarda aqui'
+                    : (_mostrando ? 'Cerrar' : 'Juguetes'),
                 style: const TextStyle(
                   color: Colors.white,
                   fontSize: 11,

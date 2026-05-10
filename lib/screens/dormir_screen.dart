@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../application/cubits/pet_world_cubit.dart';
 import '../core/app_colors.dart';
 import '../core/app_router.dart';
+import '../core/disaster_system.dart';
 import '../cubit/pet_cubit.dart';
 import '../cubit/pet_state.dart';
 import '../domain/enums/pet_activity.dart';
@@ -95,13 +96,17 @@ class _DormirScreenState extends State<DormirScreen>
     if (!mounted) return;
     final mascota = context.read<PetCubit>().state.mascota;
     if (mascota == null) return;
-    await context.read<PetWorldCubit>().syncScreenEntry(
+    final worldCubit = context.read<PetWorldCubit>();
+    final disasterCubit = context.read<DisasterCubit>();
+    await worldCubit.syncScreenEntry(
       mascota: mascota,
       location: PetLocation.dormir,
       fallbackActivity: mascota.estaDescansando
           ? PetActivity.sleeping
           : PetActivity.idle,
     );
+    if (!mounted) return;
+    await disasterCubit.verificarDesastre(mascota.idMascota);
   }
 
   Future<void> _ensureLockedSleepState() async {

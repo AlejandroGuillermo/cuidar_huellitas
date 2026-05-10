@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -11,6 +12,7 @@ import 'app_router.dart';
 const String disasterScreenAll = 'all';
 const String disasterScreenHome = 'home';
 const String disasterScreenAlimentar = 'alimentar';
+const String disasterScreenJugar = 'jugar';
 const String disasterScreenDormir = 'dormir';
 const int _defaultMissionRewardCoins = 5;
 
@@ -18,6 +20,7 @@ enum DisasterType { comida, juguete, basura, porcion }
 
 class DisasterObject {
   final String id;
+  final String sourceDocId;
   final DisasterType tipo;
   final String emoji;
   final String pantalla;
@@ -26,6 +29,7 @@ class DisasterObject {
 
   const DisasterObject({
     required this.id,
+    required this.sourceDocId,
     required this.tipo,
     required this.emoji,
     required this.pantalla,
@@ -51,13 +55,39 @@ class DisasterState {
 class DisasterCubit extends Cubit<DisasterState> {
   final Random _random = Random();
   final UserRepository _userRepository = UserRepository();
+  static const List<String> _toyIds = ['1', '2', '3', '4', '5', '6'];
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _pendingSub;
+  String? _activeMascotaId;
 
   DisasterCubit() : super(const DisasterState());
 
   Future<void> verificarDesastre(String mascotaId) async {
     try {
       final userId = FirebaseAuth.instance.currentUser?.uid;
-      if (userId == null) return;
+      if (userId == null || mascotaId.isEmpty) {
+        await _stopWatching();
+        emit(const DisasterState());
+        return;
+      }
+
+      if (_activeMascotaId == mascotaId && _pendingSub != null) {
+        return;
+      }
+
+      await _stopWatching();
+      _activeMascotaId = mascotaId;
+      _pendingSub = FirebaseFirestore.instance
+          .collection('usuarios')
+          .doc(userId)
+          .collection('mascotas')
+          .doc(mascotaId)
+          .collection('desastres_pendientes')
+          .where('recogido', isEqualTo: false)
+          .snapshots()
+          .listen((snap) {
+            emit(_buildStateFromSnapshot(snap));
+          });
+      
 
       final snap = await FirebaseFirestore.instance
           .collection('usuarios')
@@ -68,12 +98,18 @@ class DisasterCubit extends Cubit<DisasterState> {
           .where('recogido', isEqualTo: false)
           .get();
 
-      if (snap.docs.isEmpty) return;
+      if (snap.docs.isEmpty) {
+        emit(const DisasterState());
+        return;
+      }
 
       final objetos = <DisasterObject>[];
       for (final doc in snap.docs) {
         final data = doc.data();
         final tipo = _parseTipo(data['tipo'] as String? ?? 'comida');
+        if (tipo == DisasterType.juguete) {
+          continue;
+        }
         final cantidad = (data['cantidad'] as int?) ?? 1;
         final pantalla = _normalizarPantalla(data['pantalla'] as String?);
 
@@ -81,6 +117,7 @@ class DisasterCubit extends Cubit<DisasterState> {
           objetos.add(
             DisasterObject(
               id: '${doc.id}_$i',
+              sourceDocId: doc.id,
               tipo: tipo,
               emoji: data['emoji'] as String? ?? '🍖',
               pantalla: pantalla,
@@ -111,9 +148,16 @@ class DisasterCubit extends Cubit<DisasterState> {
       final userId = FirebaseAuth.instance.currentUser?.uid;
       if (userId == null) return;
 
-      final pantallaNormalizada = _normalizarPantalla(pantalla);
+      final pantallaNormalizada = _normalizarPantalla(
+        tipo == DisasterType.juguete && pantalla == disasterScreenAll
+            ? disasterScreenJugar
+            : pantalla,
+      );
+      final toyIds = tipo == DisasterType.juguete
+          ? _pickToyIds(cantidad)
+          : const <String>[];
 
-      await FirebaseFirestore.instance
+      final docRef = await FirebaseFirestore.instance
           .collection('usuarios')
           .doc(userId)
           .collection('mascotas')
@@ -126,7 +170,12 @@ class DisasterCubit extends Cubit<DisasterState> {
             'pantalla': pantallaNormalizada,
             'recogido': false,
             'fecha': FieldValue.serverTimestamp(),
+            if (toyIds.isNotEmpty) 'toy_ids': toyIds,
           });
+
+      if (tipo == DisasterType.juguete) {
+        return;
+      }
 
       final nuevos = List<DisasterObject>.from(state.objetos);
       final timestamp = DateTime.now().millisecondsSinceEpoch;
@@ -134,6 +183,7 @@ class DisasterCubit extends Cubit<DisasterState> {
         nuevos.add(
           DisasterObject(
             id: 'live_${timestamp}_$i',
+            sourceDocId: docRef.id,
             tipo: tipo,
             emoji: emoji,
             pantalla: pantallaNormalizada,
@@ -171,7 +221,7 @@ class DisasterCubit extends Cubit<DisasterState> {
 
         final pantalla = _normalizarPantalla(entry.key);
 
-        await FirebaseFirestore.instance
+        final docRef = await FirebaseFirestore.instance
             .collection('usuarios')
             .doc(userId)
             .collection('mascotas')
@@ -190,6 +240,7 @@ class DisasterCubit extends Cubit<DisasterState> {
           nuevos.add(
             DisasterObject(
               id: 'live_${timestamp}_${pantalla}_$i',
+              sourceDocId: docRef.id,
               tipo: tipo,
               emoji: emoji,
               pantalla: pantalla,
@@ -210,6 +261,17 @@ class DisasterCubit extends Cubit<DisasterState> {
   }
 
   Future<void> recogerObjeto(String objetoId, String mascotaId) async {
+    final objetivo = state.objetos.cast<DisasterObject?>().firstWhere(
+      (o) => o?.id == objetoId,
+      orElse: () => null,
+    );
+    if (objetivo == null) return;
+
+    await _descontarObjetoPersistido(
+      mascotaId: mascotaId,
+      sourceDocId: objetivo.sourceDocId,
+    );
+
     final actualizados = state.objetos.where((o) => o.id != objetoId).toList();
     emit(
       state.copyWith(
@@ -217,40 +279,74 @@ class DisasterCubit extends Cubit<DisasterState> {
         hayDesastre: actualizados.isNotEmpty,
       ),
     );
-
-    if (actualizados.isEmpty) {
-      await _marcarTodosRecogidos(mascotaId);
-    }
   }
 
-  Future<void> _marcarTodosRecogidos(String mascotaId) async {
-    try {
-      final userId = FirebaseAuth.instance.currentUser?.uid;
-      if (userId == null) return;
+  Future<void> _descontarObjetoPersistido({
+    required String mascotaId,
+    required String sourceDocId,
+  }) async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
 
-      final snap = await FirebaseFirestore.instance
-          .collection('usuarios')
-          .doc(userId)
-          .collection('mascotas')
-          .doc(mascotaId)
-          .collection('desastres_pendientes')
-          .where('recogido', isEqualTo: false)
-          .get();
+    final disasterRef = FirebaseFirestore.instance
+        .collection('usuarios')
+        .doc(userId)
+        .collection('mascotas')
+        .doc(mascotaId)
+        .collection('desastres_pendientes')
+        .doc(sourceDocId);
 
-      final batch = FirebaseFirestore.instance.batch();
-      for (final doc in snap.docs) {
-        batch.update(doc.reference, {'recogido': true});
+    await FirebaseFirestore.instance.runTransaction((tx) async {
+      final snap = await tx.get(disasterRef);
+      if (!snap.exists) return;
+
+      final data = snap.data() ?? <String, dynamic>{};
+      final cantidadActual = (data['cantidad'] as num?)?.toInt() ?? 0;
+      if (cantidadActual <= 0) {
+        tx.set(disasterRef, {'recogido': true}, SetOptions(merge: true));
+        return;
       }
-      await batch.commit();
-      final coinsGanadas = await _completarMisionesRecogerComida(
-        userId: userId,
-        mascotaId: mascotaId,
-      );
-      if (coinsGanadas > 0) {
-        await _sumarMonedasUsuario(userId: userId, coins: coinsGanadas);
-      }
-    } catch (e) {
-      debugPrint('Error marcando recogidos: $e');
+
+      final nuevaCantidad = cantidadActual - 1;
+      tx.set(disasterRef, {
+        'cantidad': nuevaCantidad,
+        'recogido': nuevaCantidad <= 0,
+        if (nuevaCantidad <= 0)
+          'fecha_recogido': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    });
+
+    await _completarMisionesSiYaNoQuedaComida(
+      userId: userId,
+      mascotaId: mascotaId,
+    );
+  }
+
+  Future<void> _completarMisionesSiYaNoQuedaComida({
+    required String userId,
+    required String mascotaId,
+  }) async {
+    final restantes = await FirebaseFirestore.instance
+        .collection('usuarios')
+        .doc(userId)
+        .collection('mascotas')
+        .doc(mascotaId)
+        .collection('desastres_pendientes')
+        .where('recogido', isEqualTo: false)
+        .get();
+
+    final quedaComida = restantes.docs.any((doc) {
+      final tipo = (doc.data()['tipo'] as String?) ?? '';
+      return tipo == 'comida' || tipo == 'porcion';
+    });
+    if (quedaComida) return;
+
+    final coinsGanadas = await _completarMisionesRecogerComida(
+      userId: userId,
+      mascotaId: mascotaId,
+    );
+    if (coinsGanadas > 0) {
+      await _sumarMonedasUsuario(userId: userId, coins: coinsGanadas);
     }
   }
 
@@ -333,9 +429,76 @@ class DisasterCubit extends Cubit<DisasterState> {
     return switch (pantalla) {
       disasterScreenHome => disasterScreenHome,
       disasterScreenAlimentar => disasterScreenAlimentar,
+      disasterScreenJugar => disasterScreenJugar,
       disasterScreenDormir => disasterScreenDormir,
       _ => disasterScreenAll,
     };
+  }
+
+  List<String> _pickToyIds(int cantidad) {
+    if (cantidad <= 0) return const [];
+    final bolsa = List<String>.from(_toyIds)..shuffle(_random);
+    if (cantidad <= bolsa.length) {
+      return bolsa.take(cantidad).toList();
+    }
+
+    final resultado = <String>[];
+    while (resultado.length < cantidad) {
+      final restantes = List<String>.from(_toyIds)..shuffle(_random);
+      for (final toyId in restantes) {
+        if (resultado.length >= cantidad) break;
+        resultado.add(toyId);
+      }
+    }
+    return resultado;
+  }
+
+  DisasterState _buildStateFromSnapshot(
+    QuerySnapshot<Map<String, dynamic>> snap,
+  ) {
+    if (snap.docs.isEmpty) {
+      return const DisasterState();
+    }
+
+    final objetos = <DisasterObject>[];
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      final tipo = _parseTipo(data['tipo'] as String? ?? 'comida');
+      if (tipo == DisasterType.juguete) continue;
+
+      final cantidad = (data['cantidad'] as int?) ?? 1;
+      final pantalla = _normalizarPantalla(data['pantalla'] as String?);
+      for (int i = 0; i < cantidad; i++) {
+        objetos.add(
+          DisasterObject(
+            id: '${doc.id}_$i',
+            sourceDocId: doc.id,
+            tipo: tipo,
+            emoji: data['emoji'] as String? ?? 'ðŸ–',
+            pantalla: pantalla,
+            posicion: Offset(
+              0.05 + _random.nextDouble() * 0.85,
+              0.10 + _random.nextDouble() * 0.70,
+            ),
+            escala: 0.8 + _random.nextDouble() * 0.6,
+          ),
+        );
+      }
+    }
+
+    return DisasterState(objetos: objetos, hayDesastre: objetos.isNotEmpty);
+  }
+
+  Future<void> _stopWatching() async {
+    await _pendingSub?.cancel();
+    _pendingSub = null;
+    _activeMascotaId = null;
+  }
+
+  @override
+  Future<void> close() async {
+    await _stopWatching();
+    return super.close();
   }
 }
 
@@ -389,6 +552,8 @@ class DisasterOverlay extends StatelessWidget {
         return ruta == AppRoutes.home;
       case disasterScreenAlimentar:
         return ruta.startsWith(AppRoutes.alimentar);
+      case disasterScreenJugar:
+        return ruta.startsWith(AppRoutes.jugar);
       case disasterScreenDormir:
         return ruta.startsWith(AppRoutes.dormir);
       case disasterScreenAll:

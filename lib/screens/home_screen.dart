@@ -12,6 +12,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../cubit/pet_cubit.dart';
 import '../core/app_colors.dart';
 import '../core/app_router.dart';
+import '../core/disaster_system.dart';
 import '../core/cosmetic_catalog.dart';
 import '../widgets/paw_map_widget.dart';
 import '../widgets/header_widget.dart';
@@ -77,11 +78,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (!mounted) return;
     final mascota = context.read<PetCubit>().state.mascota;
     if (mascota == null) return;
-    await context.read<PetWorldCubit>().syncScreenEntry(
+    final worldCubit = context.read<PetWorldCubit>();
+    final disasterCubit = context.read<DisasterCubit>();
+    await worldCubit.syncScreenEntry(
       mascota: mascota,
       location: PetLocation.home,
       fallbackActivity: PetActivity.roaming,
     );
+    if (!mounted) return;
+    await disasterCubit.verificarDesastre(mascota.idMascota);
   }
 
   // Eliminadas funciones de cámara

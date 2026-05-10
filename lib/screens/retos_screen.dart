@@ -19,7 +19,15 @@ class RetosScreen extends StatelessWidget {
     return BlocBuilder<MissionCubit, MissionState>(
       builder: (context, missionState) {
         final activeMissions = missionState.missions
-            .map(_MissionCardData.fromMission)
+            .map(
+              (mission) => _MissionCardData.fromMission(
+                mission,
+                fallbackLocation: _resolveMissionLocation(
+                  mission,
+                  missionState.disasters,
+                ),
+              ),
+            )
             .toList();
         final pendingDisasters = missionState.disasters
             .map(_DisasterCardData.fromDisaster)
@@ -118,6 +126,38 @@ class RetosScreen extends StatelessWidget {
     );
   }
 
+  PetLocation _resolveMissionLocation(
+    PendingMission mission,
+    List<PendingDisaster> disasters,
+  ) {
+    DisasterKind? targetKind;
+    switch (mission.kind) {
+      case MissionKind.recogerComida:
+        targetKind = DisasterKind.comida;
+        break;
+      case MissionKind.recogerJuguete:
+        targetKind = DisasterKind.juguete;
+        break;
+      case MissionKind.recogerBasura:
+        targetKind = DisasterKind.basura;
+        break;
+      case MissionKind.desconocida:
+        return mission.location;
+    }
+
+    final matches = disasters.where((disaster) => disaster.kind == targetKind);
+    if (matches.isEmpty) return mission.location;
+
+    PendingDisaster? best;
+    for (final disaster in matches) {
+      if (best == null || disaster.quantity > best.quantity) {
+        best = disaster;
+      }
+    }
+
+    return best?.location ?? mission.location;
+  }
+
   void _openRouteByLocation(BuildContext context, PetLocation location) {
     switch (location) {
       case PetLocation.home:
@@ -161,7 +201,10 @@ class _MissionCardData {
     required this.location,
   });
 
-  factory _MissionCardData.fromMission(PendingMission mission) {
+  factory _MissionCardData.fromMission(
+    PendingMission mission, {
+    PetLocation? fallbackLocation,
+  }) {
     final title = switch (mission.kind) {
       MissionKind.recogerComida => 'Recoge la comida tirada',
       MissionKind.recogerJuguete => 'Recoge los juguetes',
@@ -196,7 +239,7 @@ class _MissionCardData {
       progress: 0.0,
       reward: mission.rewardCoins,
       urgent: true,
-      location: mission.location,
+      location: fallbackLocation ?? mission.location,
     );
   }
 }
@@ -208,6 +251,7 @@ class _DisasterCardData {
   final int reward;
   final String wayToWin;
   final PetLocation location;
+  final String locationLabel;
 
   const _DisasterCardData({
     required this.emoji,
@@ -216,26 +260,28 @@ class _DisasterCardData {
     required this.reward,
     required this.wayToWin,
     required this.location,
+    required this.locationLabel,
   });
 
   factory _DisasterCardData.fromDisaster(PendingDisaster disaster) {
+    final locationLabel = _locationLabel(disaster.location);
     final title = switch (disaster.kind) {
-      DisasterKind.comida => 'Comida tirada',
-      DisasterKind.juguete => 'Juguetes fuera de lugar',
-      DisasterKind.basura => 'Basura acumulada',
-      DisasterKind.porcion => 'Sobras de comida',
+      DisasterKind.comida => 'Comida tirada en $locationLabel',
+      DisasterKind.juguete => 'Juguetes fuera de lugar en $locationLabel',
+      DisasterKind.basura => 'Basura acumulada en $locationLabel',
+      DisasterKind.porcion => 'Sobras de comida en $locationLabel',
       DisasterKind.desconocido => 'Desastre pendiente',
     };
 
     final desc = switch (disaster.kind) {
       DisasterKind.comida =>
-        'Tu mascota tiro comida. Limpia ${disaster.quantity} pieza(s).',
+        'Tu mascota tiro comida en $locationLabel. Limpia ${disaster.quantity} pieza(s).',
       DisasterKind.juguete =>
-        'Recoge ${disaster.quantity} juguete(s) para ordenar el area de juego.',
+        'Recoge ${disaster.quantity} juguete(s) en $locationLabel para ordenar el area de juego.',
       DisasterKind.basura =>
-        'Limpia ${disaster.quantity} objeto(s) de basura en casa.',
+        'Limpia ${disaster.quantity} objeto(s) de basura en $locationLabel.',
       DisasterKind.porcion =>
-        'Retira ${disaster.quantity} porcion(es) para mantener limpio.',
+        'Retira ${disaster.quantity} porcion(es) en $locationLabel para mantener limpio.',
       DisasterKind.desconocido =>
         'Hay objetos pendientes por limpiar en la casa.',
     };
@@ -245,9 +291,27 @@ class _DisasterCardData {
       title: title,
       desc: desc,
       reward: 0,
-      wayToWin: 'Limpialo en su pantalla para quitarlo de pendientes.',
+      wayToWin: 'Ve a $locationLabel para quitarlo de pendientes.',
       location: disaster.location,
+      locationLabel: locationLabel,
     );
+  }
+
+  static String _locationLabel(PetLocation location) {
+    switch (location) {
+      case PetLocation.home:
+        return 'casa';
+      case PetLocation.alimentar:
+        return 'alimentacion';
+      case PetLocation.jugar:
+        return 'juego';
+      case PetLocation.dormir:
+        return 'dormitorio';
+      case PetLocation.curar:
+        return 'curacion';
+      case PetLocation.banar:
+        return 'bano';
+    }
   }
 }
 

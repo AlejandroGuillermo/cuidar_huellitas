@@ -9,7 +9,7 @@ class PendingDisasterModel {
     return PendingDisaster(
       id: id,
       kind: kind,
-      location: _locationFromKind(kind),
+      location: _locationFromData(kind, data['pantalla'] as String?),
       emoji: (data['emoji'] as String?) ?? '🧹',
       quantity: (data['cantidad'] as int?) ?? 1,
     );
@@ -27,6 +27,21 @@ class PendingDisasterModel {
         return DisasterKind.porcion;
       default:
         return DisasterKind.desconocido;
+    }
+  }
+
+  static PetLocation _locationFromData(DisasterKind kind, String? pantalla) {
+    switch (pantalla) {
+      case 'home':
+        return PetLocation.home;
+      case 'alimentar':
+        return PetLocation.alimentar;
+      case 'jugar':
+        return PetLocation.jugar;
+      case 'dormir':
+        return PetLocation.dormir;
+      default:
+        return _locationFromKind(kind);
     }
   }
 

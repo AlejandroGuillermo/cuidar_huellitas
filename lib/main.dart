@@ -5,9 +5,13 @@ import 'package:rive/rive.dart' as rive;
 
 import 'application/cubits/mission_cubit.dart';
 import 'application/cubits/pet_world_cubit.dart';
+import 'application/services/fuzzy_state_engine.dart';
 import 'application/services/pet_activity_resolver.dart';
+import 'application/services/pet_ai_engine.dart';
 import 'application/services/pet_bootstrap_service.dart';
+import 'application/services/pet_emotion_resolver.dart';
 import 'application/services/pet_location_resolver.dart';
+import 'application/services/pet_needs_evaluator.dart';
 import 'application/services/notification_service.dart';
 import 'core/app_router.dart';
 import 'core/disaster_system.dart';
@@ -44,13 +48,18 @@ class MyApp extends StatelessWidget {
       locationResolver: PetLocationResolver(),
       activityResolver: PetActivityResolver(),
     );
+    final petAiEngine = PetAiEngine(
+      needsEvaluator: const PetNeedsEvaluator(),
+      fuzzyEngine: FuzzyStateEngine(),
+      emotionResolver: const PetEmotionResolver(),
+    );
 
     return MultiBlocProvider(
       providers: [
         BlocProvider(create: (context) => DisasterCubit()),
         BlocProvider(
           create: (context) {
-            final petCubit = PetCubit()
+            final petCubit = PetCubit(petAiEngine: petAiEngine)
               ..disasterCubit = context.read<DisasterCubit>()
               ..cargarMascota();
             return petCubit;
@@ -268,22 +277,26 @@ class MyApp extends StatelessWidget {
           ),
           routerConfig: appRouter,
           builder: (context, child) {
-            final currentPath =
-                appRouter.routeInformationProvider.value.uri.path;
-            final shouldShowDisasterOverlay = _shouldShowDisasterOverlay(
-              currentPath,
-            );
+            return ValueListenableBuilder(
+              valueListenable: appRouter.routeInformationProvider,
+              builder: (context, routeInfo, _) {
+                final currentPath = routeInfo.uri.path;
+                final shouldShowDisasterOverlay = _shouldShowDisasterOverlay(
+                  currentPath,
+                );
 
-            if (!shouldShowDisasterOverlay || child == null) {
-              return child ?? const SizedBox.shrink();
-            }
+                if (!shouldShowDisasterOverlay || child == null) {
+                  return child ?? const SizedBox.shrink();
+                }
 
-            final mascotaId =
-                context.watch<PetCubit>().state.mascota?.idMascota ?? '';
-            return DisasterOverlay(
-              mascotaId: mascotaId,
-              currentPath: currentPath,
-              child: child,
+                final mascotaId =
+                    context.watch<PetCubit>().state.mascota?.idMascota ?? '';
+                return DisasterOverlay(
+                  mascotaId: mascotaId,
+                  currentPath: currentPath,
+                  child: child,
+                );
+              },
             );
           },
         ),

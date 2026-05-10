@@ -11,6 +11,7 @@ import '../Models/inventario_comida_model.dart';
 import '../application/cubits/pet_world_cubit.dart';
 import '../core/app_colors.dart';
 import '../core/cosmetic_catalog.dart';
+import '../core/disaster_system.dart';
 import '../core/enums/personalidad_tipo.dart';
 import '../core/food_catalog.dart';
 import '../cubit/pet_cubit.dart';
@@ -58,8 +59,6 @@ class _AlimentarScreenState extends State<AlimentarScreen>
   Map<String, bool> _unlockedFoods = {};
 
   Timer? pouringTimer;
-  bool _misionTraviesaActiva = false;
-  List<Offset> _comidaTirada = [];
   double _swipeDx = 0.0;
 
   @override
@@ -80,11 +79,15 @@ class _AlimentarScreenState extends State<AlimentarScreen>
     if (!mounted) return;
     final mascota = context.read<PetCubit>().state.mascota;
     if (mascota == null) return;
-    await context.read<PetWorldCubit>().syncScreenEntry(
+    final worldCubit = context.read<PetWorldCubit>();
+    final disasterCubit = context.read<DisasterCubit>();
+    await worldCubit.syncScreenEntry(
       mascota: mascota,
       location: PetLocation.alimentar,
       fallbackActivity: eating ? PetActivity.eating : PetActivity.idle,
     );
+    if (!mounted) return;
+    await disasterCubit.verificarDesastre(mascota.idMascota);
   }
 
   Future<void> _ensureLockedEatingState() async {
@@ -356,10 +359,14 @@ class _AlimentarScreenState extends State<AlimentarScreen>
     final throwProbability = isTravieso ? 0.45 : (isJugueton ? 0.30 : 0.0);
 
     if (throwProbability > 0 && _random.nextDouble() <= throwProbability) {
-      _tirarComida();
+      await _tirarComida();
       final item = FoodCatalog.byId(_plateFoodId);
       final puntos = ((item?.hungerPoints ?? 15) * 0.2).round();
-      await petCubit.alimentar(puntos, emojiAlimento: _plateEmoji);
+      await petCubit.alimentar(
+        puntos,
+        emojiAlimento: _plateEmoji,
+        skipDisasterRoll: true,
+      );
       await petCubit.detenerComidaPlato();
       return;
     }
@@ -375,30 +382,31 @@ class _AlimentarScreenState extends State<AlimentarScreen>
     await _syncEatingAnchor(isEatingNow: false);
   }
 
-  void _tirarComida() {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
+  Future<void> _tirarComida() async {
     final cantidad = 5 + _random.nextInt(4);
-
-    final posiciones = List.generate(
-      cantidad,
-      (_) => Offset(
-        _random.nextDouble() * (screenWidth - 60) + 30,
-        _random.nextDouble() * (screenHeight - 200) + 100,
-      ),
-    );
+    final petCubit = context.read<PetCubit>();
+    final disasterCubit = context.read<DisasterCubit>();
+    final mascotaId = petCubit.state.mascota?.idMascota;
+    if (mascotaId == null) return;
 
     setState(() {
-      _comidaTirada = posiciones;
-      _misionTraviesaActiva = true;
       plateLevel = 0;
       _plateFoodId = null;
       foodInPlate.clear();
       eating = false;
     });
 
-    _crearMisionRecoger();
-    context.read<PetCubit>().actualizarEstadoPlato(
+    await _crearMisionRecoger();
+    if (!mounted) return;
+    await disasterCubit.generarDesastre(
+      mascotaId: mascotaId,
+      tipo: DisasterType.comida,
+      emoji: _plateEmoji,
+      cantidad: cantidad,
+      pantalla: disasterScreenAlimentar,
+    );
+    if (!mounted) return;
+    petCubit.actualizarEstadoPlato(
       nivelPlato: 0,
       clearPlatoAlimentoId: true,
       clearPlatoEmoji: true,
@@ -418,7 +426,8 @@ class _AlimentarScreenState extends State<AlimentarScreen>
         .collection('mascotas')
         .doc(mascotaId)
         .collection('misiones_activas')
-        .add({
+        .doc('recoger_comida')
+        .set({
           'tipo': 'recoger_comida',
           'reward_coins': _defaultMissionRewardCoins,
           'estado': 'pendiente',
@@ -426,77 +435,7 @@ class _AlimentarScreenState extends State<AlimentarScreen>
           'fecha_asignada': Timestamp.now(),
           'fecha_completada': null,
           'streak': 0,
-        });
-  }
-
-  Future<int> _completarMisionRecoger() async {
-    final userId = _auth.currentUser?.uid;
-    final mascotaId = context.read<PetCubit>().state.mascota?.idMascota;
-    if (userId == null || mascotaId == null) return 0;
-
-    final pending = await _firestore
-        .collection('usuarios')
-        .doc(userId)
-        .collection('mascotas')
-        .doc(mascotaId)
-        .collection('misiones_activas')
-        .where('tipo', isEqualTo: 'recoger_comida')
-        .where('estado', isEqualTo: 'pendiente')
-        .get();
-
-    if (pending.docs.isEmpty) return 0;
-    final batch = _firestore.batch();
-    var coinsGanadas = 0;
-    for (final doc in pending.docs) {
-      final data = doc.data();
-      coinsGanadas += _rewardCoinsFromMissionData(data);
-      batch.update(doc.reference, {
-        'estado': 'completada',
-        'fecha_completada': Timestamp.now(),
-      });
-    }
-    await batch.commit();
-    return coinsGanadas;
-  }
-
-  int _rewardCoinsFromMissionData(Map<String, dynamic> data) {
-    final coins = (data['reward_coins'] as num?)?.toInt() ?? 0;
-    return coins > 0 ? coins : _defaultMissionRewardCoins;
-  }
-
-  Future<void> _sumarCoinsMisionRecoger({int coins = 5}) async {
-    final userId = _auth.currentUser?.uid;
-    if (userId == null || coins <= 0) return;
-
-    final totalActualizado = await _userRepository.addCoins(userId, coins);
-
-    if (!mounted) return;
-    setState(() => _coins = totalActualizado);
-  }
-
-  Future<void> _recogerComida(int index) async {
-    final petCubit = context.read<PetCubit>();
-    setState(() {
-      _comidaTirada.removeAt(index);
-    });
-
-    if (_comidaTirada.isNotEmpty) return;
-
-    setState(() => _misionTraviesaActiva = false);
-    final coinsGanadas = await _completarMisionRecoger();
-    if (coinsGanadas > 0) {
-      await _sumarCoinsMisionRecoger(coins: coinsGanadas);
-    }
-    await petCubit.aumentarLimpieza(3, accion: 'recoger_comida_limpieza');
-
-    if (!mounted) return;
-    final bonusMonedas = coinsGanadas > 0 ? ' y +$coinsGanadas monedas' : '';
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Recogiste toda la comida. +3 limpieza$bonusMonedas'),
-        backgroundColor: Color(0xFF8AE670),
-      ),
-    );
+        }, SetOptions(merge: true));
   }
 
   String _stockLabel(String foodId) {
@@ -659,7 +598,6 @@ class _AlimentarScreenState extends State<AlimentarScreen>
                   ),
                 ),
                 if (cupboardOpen) _buildCupboardOverlay(),
-                _buildComidaTirada(),
               ],
             ),
           ),
@@ -1363,58 +1301,6 @@ class _AlimentarScreenState extends State<AlimentarScreen>
     );
   }
 
-  // Si la mascota es traviesa/juguetona, muestra las piezas de comida tiradas por la pantalla
-  Widget _buildComidaTirada() {
-    if (!_misionTraviesaActiva || _comidaTirada.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Stack(
-      children: [
-        Positioned(
-          top: 80,
-          left: 0,
-          right: 0,
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFF8C42).withValues(alpha: 0.9),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                'Recoge la comida: ${_comidaTirada.length} piezas',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                ),
-              ),
-            ),
-          ),
-        ),
-        ..._comidaTirada.asMap().entries.map((entry) {
-          final index = entry.key;
-          final pos = entry.value;
-          return Positioned(
-            left: pos.dx,
-            top: pos.dy,
-            child: GestureDetector(
-              onTap: () => _recogerComida(index),
-              child: TweenAnimationBuilder<double>(
-                tween: Tween(begin: 0.0, end: 1.0),
-                duration: const Duration(milliseconds: 400),
-                curve: Curves.elasticOut,
-                builder: (context, value, child) =>
-                    Transform.scale(scale: value, child: child),
-                child: Text(_plateEmoji, style: const TextStyle(fontSize: 36)),
-              ),
-            ),
-          );
-        }),
-      ],
-    );
-  }
 }
 
 /// Painter para textura de azulejos
