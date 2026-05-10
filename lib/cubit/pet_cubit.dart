@@ -6,13 +6,16 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'pet_state.dart';
 import '../Models/mascota_model.dart';
+import '../application/models/pet_ai_decision.dart';
 import '../application/services/pet_ai_engine.dart';
+import '../application/services/routine_analyzer.dart';
 import '../application/services/notification_service.dart';
 import '../core/personality_config.dart';
 import '../core/disaster_system.dart';
 import '../core/enums/personalidad_tipo.dart';
 import '../core/enums/pet_need.dart';
 import '../core/food_catalog.dart';
+import '../data/repositories/ai_state_repository.dart';
 import '../data/repositories/inventory_repository.dart';
 import '../data/repositories/pet_repository.dart';
 
@@ -22,6 +25,8 @@ class PetCubit extends Cubit<PetState> {
   final InventoryRepository _inventoryRepository = InventoryRepository();
   final PetRepository _petRepository;
   final PetAiEngine _petAiEngine;
+  final RoutineAnalyzer? _routineAnalyzer;
+  final AiStateRepository? _aiStateRepository;
   final Random _random = Random();
   Timer? _deterioroTimer;
   Timer? _platoComidaTimer;
@@ -39,10 +44,16 @@ class PetCubit extends Cubit<PetState> {
 
   DisasterCubit? disasterCubit;
 
-  PetCubit({required PetAiEngine petAiEngine, PetRepository? petRepository})
-    : _petAiEngine = petAiEngine,
-      _petRepository = petRepository ?? PetRepository(),
-      super(PetState(isLoading: true));
+  PetCubit({
+    required PetAiEngine petAiEngine,
+    PetRepository? petRepository,
+    RoutineAnalyzer? routineAnalyzer,
+    AiStateRepository? aiStateRepository,
+  }) : _petAiEngine = petAiEngine,
+       _petRepository = petRepository ?? PetRepository(),
+       _routineAnalyzer = routineAnalyzer,
+       _aiStateRepository = aiStateRepository,
+       super(PetState(isLoading: true));
 
   int _umbralBuffPorDescanso(String tipoDescanso) {
     return tipoDescanso == 'siesta' ? 10 : 20;
@@ -1483,15 +1494,21 @@ class PetCubit extends Cubit<PetState> {
       return; // no deteriorar si descansa
     }
 
-    final previewDecision = _petAiEngine.evaluate(antes);
+    final userId = _auth.currentUser?.uid;
+    final previewDecision = userId != null
+        ? await _petAiEngine.evaluateAsync(antes, userId)
+        : _petAiEngine.evaluate(antes);
     final despuesBase = _calcularDeterioro(
       antes,
       factorExtra: factorExtra * previewDecision.deterioroRate,
     );
-    final decision = _petAiEngine.evaluate(despuesBase);
+    final decision = userId != null
+        ? await _petAiEngine.evaluateAsync(despuesBase, userId)
+        : _petAiEngine.evaluate(despuesBase);
     final despues = despuesBase.copyWith(
       deterioroRate: decision.deterioroRate,
-      anomaliaActiva: antes.anomaliaActiva,
+      anomaliaActiva: decision.anomaliaActiva,
+      anomaliaDetectada: decision.anomaliaActiva,
       estadoEmocional: decision.emotion.toFirestoreString(),
     );
 
@@ -1502,6 +1519,7 @@ class PetCubit extends Cubit<PetState> {
       accion: 'deterioro',
     );
     await _persistirDecisionAi(despues, decision.deterioroRate);
+    await _guardarAiHistory(despues, decision);
     await _aplicarMisionBasicaPorNecesidad(despues, decision.needPriority);
     await _verificarReacciones(despues);
   }
@@ -1585,6 +1603,8 @@ class PetCubit extends Cubit<PetState> {
       await _petRepository.updatePetFields(userId, mascota.idMascota, {
         'deterioro_rate': deterioroRate,
         'anomalia_activa': mascota.anomaliaActiva,
+        'anomalia_detectada': mascota.anomaliaActiva,
+        'anomaliaActiva': mascota.anomaliaActiva,
         'estado_emocional': mascota.estadoEmocional,
       });
     } catch (error) {
@@ -1609,5 +1629,45 @@ class PetCubit extends Cubit<PetState> {
 
     if (missionId == null) return;
     await _crearMisionActiva(missionId, mascota.idMascota);
+  }
+
+  Future<void> triggerRoutineAnalysis() async {
+    final userId = _auth.currentUser?.uid;
+    final mascota = state.mascota;
+    if (userId == null || mascota == null) return;
+
+    try {
+      await _routineAnalyzer?.analyzeAndUpdate(userId, mascota.idMascota);
+    } catch (error) {
+      debugPrint('Error analizando rutina: $error');
+    }
+  }
+
+  Future<void> _guardarAiHistory(
+    MascotaModel mascota,
+    PetAiDecision decision,
+  ) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null || _aiStateRepository == null) return;
+
+    try {
+      await _aiStateRepository.saveEntry(
+        userId,
+        mascota.idMascota,
+        AiHistoryEntry(
+          id: '',
+          createdAt: DateTime.now(),
+          deterioroRate: decision.deterioroRate,
+          anomaliaActiva: decision.anomaliaActiva,
+          estadoEmocional: decision.emotion.toFirestoreString(),
+          necesidadPrioritaria: decision.needPriority.toDisplayString(),
+          mensaje: decision.mensaje,
+          source: 'tick',
+        ),
+      );
+      await _aiStateRepository.deleteOldEntries(userId, mascota.idMascota);
+    } catch (error) {
+      debugPrint('Error guardando ai_history: $error');
+    }
   }
 }

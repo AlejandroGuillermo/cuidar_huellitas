@@ -5,6 +5,7 @@ import 'package:rive/rive.dart' as rive;
 
 import 'application/cubits/mission_cubit.dart';
 import 'application/cubits/pet_world_cubit.dart';
+import 'application/services/anomaly_detector.dart';
 import 'application/services/fuzzy_state_engine.dart';
 import 'application/services/pet_activity_resolver.dart';
 import 'application/services/pet_ai_engine.dart';
@@ -12,13 +13,18 @@ import 'application/services/pet_bootstrap_service.dart';
 import 'application/services/pet_emotion_resolver.dart';
 import 'application/services/pet_location_resolver.dart';
 import 'application/services/pet_needs_evaluator.dart';
+import 'application/services/routine_analyzer.dart';
 import 'application/services/notification_service.dart';
 import 'core/app_router.dart';
 import 'core/disaster_system.dart';
 import 'cubit/pet_cubit.dart';
 import 'cubit/pet_state.dart';
+import 'data/repositories/ai_state_repository.dart';
 import 'data/repositories/disaster_repository.dart';
 import 'data/repositories/mission_repository.dart';
+import 'data/repositories/patron_rutina_repository.dart';
+import 'data/repositories/pet_repository.dart';
+import 'data/repositories/progreso_repository.dart';
 import 'data/repositories/world_repository.dart';
 import 'domain/entities/pending_mission.dart';
 import 'domain/enums/pet_activity.dart';
@@ -48,10 +54,22 @@ class MyApp extends StatelessWidget {
       locationResolver: PetLocationResolver(),
       activityResolver: PetActivityResolver(),
     );
+    final petRepository = PetRepository();
+    final progresoRepository = ProgresoRepository();
+    final patronRutinaRepository = PatronRutinaRepository();
+    final routineAnalyzer = RoutineAnalyzer(
+      progresoRepository: progresoRepository,
+      patronRepository: patronRutinaRepository,
+    );
+    final anomalyDetector = AnomalyDetector(
+      patronRepository: patronRutinaRepository,
+    );
+    final aiStateRepository = AiStateRepository();
     final petAiEngine = PetAiEngine(
       needsEvaluator: const PetNeedsEvaluator(),
       fuzzyEngine: FuzzyStateEngine(),
       emotionResolver: const PetEmotionResolver(),
+      anomalyDetector: anomalyDetector,
     );
 
     return MultiBlocProvider(
@@ -59,9 +77,15 @@ class MyApp extends StatelessWidget {
         BlocProvider(create: (context) => DisasterCubit()),
         BlocProvider(
           create: (context) {
-            final petCubit = PetCubit(petAiEngine: petAiEngine)
-              ..disasterCubit = context.read<DisasterCubit>()
-              ..cargarMascota();
+            final petCubit =
+                PetCubit(
+                    petAiEngine: petAiEngine,
+                    petRepository: petRepository,
+                    routineAnalyzer: routineAnalyzer,
+                    aiStateRepository: aiStateRepository,
+                  )
+                  ..disasterCubit = context.read<DisasterCubit>()
+                  ..cargarMascota();
             return petCubit;
           },
         ),
