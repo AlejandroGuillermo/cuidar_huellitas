@@ -8,6 +8,9 @@ class PetAiDecision {
   final double deterioroRate;
   final bool anomaliaActiva;
   final String? misionRecomendada;
+  final int? urgenciaMision;
+  final bool reemplazarActiva;
+  final List<String> misionesAReemplazar;
   final String? mensaje;
   final bool generarDesastre;
   final DateTime calculadoAt;
@@ -19,6 +22,9 @@ class PetAiDecision {
     required this.deterioroRate,
     required this.anomaliaActiva,
     required this.misionRecomendada,
+    required this.urgenciaMision,
+    required this.reemplazarActiva,
+    required this.misionesAReemplazar,
     required this.mensaje,
     required this.generarDesastre,
     required this.calculadoAt,
@@ -32,6 +38,9 @@ class PetAiDecision {
       deterioroRate: 1.0,
       anomaliaActiva: false,
       misionRecomendada: null,
+      urgenciaMision: null,
+      reemplazarActiva: false,
+      misionesAReemplazar: const [],
       mensaje: null,
       generarDesastre: false,
       calculadoAt: DateTime.now(),
@@ -46,6 +55,10 @@ class PetAiDecision {
     bool? anomaliaActiva,
     String? misionRecomendada,
     bool clearMisionRecomendada = false,
+    int? urgenciaMision,
+    bool clearUrgenciaMision = false,
+    bool? reemplazarActiva,
+    List<String>? misionesAReemplazar,
     String? mensaje,
     bool clearMensaje = false,
     bool? generarDesastre,
@@ -60,6 +73,11 @@ class PetAiDecision {
       misionRecomendada: clearMisionRecomendada
           ? null
           : (misionRecomendada ?? this.misionRecomendada),
+      urgenciaMision: clearUrgenciaMision
+          ? null
+          : (urgenciaMision ?? this.urgenciaMision),
+      reemplazarActiva: reemplazarActiva ?? this.reemplazarActiva,
+      misionesAReemplazar: misionesAReemplazar ?? this.misionesAReemplazar,
       mensaje: clearMensaje ? null : (mensaje ?? this.mensaje),
       generarDesastre: generarDesastre ?? this.generarDesastre,
       calculadoAt: calculadoAt ?? this.calculadoAt,

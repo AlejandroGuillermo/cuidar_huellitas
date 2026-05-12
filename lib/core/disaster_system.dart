@@ -6,6 +6,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
+import '../application/models/pet_ai_decision.dart';
+import '../core/enums/pet_emotion.dart';
+import '../core/enums/pet_need.dart';
 import '../data/repositories/user_repository.dart';
 import 'app_router.dart';
 
@@ -87,7 +90,6 @@ class DisasterCubit extends Cubit<DisasterState> {
           .listen((snap) {
             emit(_buildStateFromSnapshot(snap));
           });
-      
 
       final snap = await FirebaseFirestore.instance
           .collection('usuarios')
@@ -260,6 +262,53 @@ class DisasterCubit extends Cubit<DisasterState> {
     }
   }
 
+  Future<void> triggerFromAiDecision(PetAiDecision decision) async {
+    final mascotaId = _activeMascotaId;
+    if (mascotaId == null || mascotaId.isEmpty) return;
+
+    var probability = 0.10;
+    var tipo = DisasterType.values[_random.nextInt(DisasterType.values.length)];
+    var emoji = '🍂';
+    var pantalla = disasterScreenAll;
+    var cantidad = 1;
+
+    if (decision.emotion == PetEmotion.dirty ||
+        decision.needPriority == PetNeed.hygiene) {
+      probability = 0.35;
+      tipo = DisasterType.basura;
+      emoji = '🗑️';
+      pantalla = disasterScreenHome;
+      cantidad = 1 + _random.nextInt(decision.anomaliaActiva ? 2 : 1);
+    } else if (decision.emotion == PetEmotion.hungry ||
+        decision.needPriority == PetNeed.hunger) {
+      probability = 0.28;
+      tipo = _random.nextBool() ? DisasterType.comida : DisasterType.porcion;
+      emoji = tipo == DisasterType.porcion ? '🥣' : '🍖';
+      pantalla = disasterScreenAlimentar;
+    } else if (decision.emotion == PetEmotion.bored ||
+        decision.needPriority == PetNeed.affection) {
+      probability = 0.22;
+      tipo = DisasterType.juguete;
+      emoji = '🧸';
+      pantalla = disasterScreenJugar;
+    }
+
+    if (decision.anomaliaActiva) {
+      probability *= 1.5;
+    }
+
+    probability = probability.clamp(0.05, 0.75).toDouble();
+    if (_random.nextDouble() > probability) return;
+
+    await generarDesastre(
+      mascotaId: mascotaId,
+      tipo: tipo,
+      emoji: emoji,
+      cantidad: cantidad,
+      pantalla: pantalla,
+    );
+  }
+
   Future<void> recogerObjeto(String objetoId, String mascotaId) async {
     final objetivo = state.objetos.cast<DisasterObject?>().firstWhere(
       (o) => o?.id == objetoId,
@@ -311,8 +360,7 @@ class DisasterCubit extends Cubit<DisasterState> {
       tx.set(disasterRef, {
         'cantidad': nuevaCantidad,
         'recogido': nuevaCantidad <= 0,
-        if (nuevaCantidad <= 0)
-          'fecha_recogido': FieldValue.serverTimestamp(),
+        if (nuevaCantidad <= 0) 'fecha_recogido': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
     });
 

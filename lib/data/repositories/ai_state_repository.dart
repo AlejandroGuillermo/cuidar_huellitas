@@ -8,6 +8,7 @@ class AiHistoryEntry {
   final bool anomaliaActiva;
   final String estadoEmocional;
   final String necesidadPrioritaria;
+  final String? misionRecomendada;
   final String? mensaje;
   final String source;
 
@@ -18,6 +19,7 @@ class AiHistoryEntry {
     required this.anomaliaActiva,
     required this.estadoEmocional,
     required this.necesidadPrioritaria,
+    required this.misionRecomendada,
     required this.mensaje,
     required this.source,
   });
@@ -31,6 +33,7 @@ class AiHistoryEntry {
       anomaliaActiva: data['anomalia_activa'] ?? false,
       estadoEmocional: data['estado_emocional'] ?? 'neutral',
       necesidadPrioritaria: data['necesidad_prioritaria'] ?? 'Sin necesidad',
+      misionRecomendada: data['mision_recomendada'],
       mensaje: data['mensaje'],
       source: data['source'] ?? 'manual',
     );
@@ -43,6 +46,7 @@ class AiHistoryEntry {
       'anomalia_activa': anomaliaActiva,
       'estado_emocional': estadoEmocional,
       'necesidad_prioritaria': necesidadPrioritaria,
+      'mision_recomendada': misionRecomendada,
       'mensaje': mensaje,
       'source': source,
     };

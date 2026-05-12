@@ -6,6 +6,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'pet_state.dart';
 import '../Models/mascota_model.dart';
+import '../Models/mision_activa_model.dart';
 import '../application/models/pet_ai_decision.dart';
 import '../application/services/pet_ai_engine.dart';
 import '../application/services/routine_analyzer.dart';
@@ -13,10 +14,10 @@ import '../application/services/notification_service.dart';
 import '../core/personality_config.dart';
 import '../core/disaster_system.dart';
 import '../core/enums/personalidad_tipo.dart';
-import '../core/enums/pet_need.dart';
 import '../core/food_catalog.dart';
 import '../data/repositories/ai_state_repository.dart';
 import '../data/repositories/inventory_repository.dart';
+import '../data/repositories/mission_repository.dart';
 import '../data/repositories/pet_repository.dart';
 
 class PetCubit extends Cubit<PetState> {
@@ -27,6 +28,7 @@ class PetCubit extends Cubit<PetState> {
   final PetAiEngine _petAiEngine;
   final RoutineAnalyzer? _routineAnalyzer;
   final AiStateRepository? _aiStateRepository;
+  final MissionRepository? _missionRepository;
   final Random _random = Random();
   Timer? _deterioroTimer;
   Timer? _platoComidaTimer;
@@ -49,10 +51,12 @@ class PetCubit extends Cubit<PetState> {
     PetRepository? petRepository,
     RoutineAnalyzer? routineAnalyzer,
     AiStateRepository? aiStateRepository,
+    MissionRepository? missionRepository,
   }) : _petAiEngine = petAiEngine,
        _petRepository = petRepository ?? PetRepository(),
        _routineAnalyzer = routineAnalyzer,
        _aiStateRepository = aiStateRepository,
+       _missionRepository = missionRepository,
        super(PetState(isLoading: true));
 
   int _umbralBuffPorDescanso(String tipoDescanso) {
@@ -1169,7 +1173,11 @@ class PetCubit extends Cubit<PetState> {
     }
   }
 
-  Future<void> _crearMisionActiva(String misionId, String mascotaId) async {
+  Future<void> _crearMisionActiva(
+    String misionId,
+    String mascotaId, {
+    int? urgencia,
+  }) async {
     final userId = _auth.currentUser?.uid;
     if (userId == null) return;
     try {
@@ -1187,6 +1195,9 @@ class PetCubit extends Cubit<PetState> {
       }
       if (rewardCoins > 0) {
         data['reward_coins'] = rewardCoins;
+      }
+      if (urgencia != null) {
+        data['urgencia'] = urgencia;
       }
 
       await _firestore
@@ -1495,15 +1506,27 @@ class PetCubit extends Cubit<PetState> {
     }
 
     final userId = _auth.currentUser?.uid;
+    final missionRepository = _missionRepository;
+    final List<MisionActivaModel> misionesActivas = missionRepository != null
+        ? await missionRepository.loadActiveMissionModels(antes.idMascota)
+        : const <MisionActivaModel>[];
     final previewDecision = userId != null
-        ? await _petAiEngine.evaluateAsync(antes, userId)
+        ? await _petAiEngine.evaluateAsync(
+            antes,
+            userId,
+            misionesActivas: misionesActivas,
+          )
         : _petAiEngine.evaluate(antes);
     final despuesBase = _calcularDeterioro(
       antes,
       factorExtra: factorExtra * previewDecision.deterioroRate,
     );
     final decision = userId != null
-        ? await _petAiEngine.evaluateAsync(despuesBase, userId)
+        ? await _petAiEngine.evaluateAsync(
+            despuesBase,
+            userId,
+            misionesActivas: misionesActivas,
+          )
         : _petAiEngine.evaluate(despuesBase);
     final despues = despuesBase.copyWith(
       deterioroRate: decision.deterioroRate,
@@ -1519,8 +1542,11 @@ class PetCubit extends Cubit<PetState> {
       accion: 'deterioro',
     );
     await _persistirDecisionAi(despues, decision.deterioroRate);
+    await _aplicarDecisionMision(despues, decision);
+    if (decision.generarDesastre) {
+      await disasterCubit?.triggerFromAiDecision(decision);
+    }
     await _guardarAiHistory(despues, decision);
-    await _aplicarMisionBasicaPorNecesidad(despues, decision.needPriority);
     await _verificarReacciones(despues);
   }
 
@@ -1612,23 +1638,32 @@ class PetCubit extends Cubit<PetState> {
     }
   }
 
-  Future<void> _aplicarMisionBasicaPorNecesidad(
+  Future<void> _aplicarDecisionMision(
     MascotaModel mascota,
-    PetNeed needPriority,
+    PetAiDecision decision,
   ) async {
-    if (needPriority == PetNeed.none) return;
+    final missionId = decision.misionRecomendada;
+    if (missionId == null || missionId.isEmpty) return;
 
-    final missionId = switch (needPriority) {
-      PetNeed.health => 'cuidar_salud',
-      PetNeed.hunger => 'alimentar_urgente',
-      PetNeed.energy => 'descansar_urgente',
-      PetNeed.hygiene => 'limpiar_urgente',
-      PetNeed.affection => 'jugar_urgente',
-      PetNeed.none => null,
-    };
+    try {
+      final missionRepository = _missionRepository;
+      if (missionRepository != null &&
+          decision.reemplazarActiva &&
+          decision.misionesAReemplazar.isNotEmpty) {
+        await missionRepository.cancelActiveMissions(
+          mascota.idMascota,
+          decision.misionesAReemplazar,
+        );
+      }
 
-    if (missionId == null) return;
-    await _crearMisionActiva(missionId, mascota.idMascota);
+      await _crearMisionActiva(
+        missionId,
+        mascota.idMascota,
+        urgencia: decision.urgenciaMision,
+      );
+    } catch (error) {
+      debugPrint('Error aplicando decision de mision: $error');
+    }
   }
 
   Future<void> triggerRoutineAnalysis() async {
@@ -1661,6 +1696,7 @@ class PetCubit extends Cubit<PetState> {
           anomaliaActiva: decision.anomaliaActiva,
           estadoEmocional: decision.emotion.toFirestoreString(),
           necesidadPrioritaria: decision.needPriority.toDisplayString(),
+          misionRecomendada: decision.misionRecomendada,
           mensaje: decision.mensaje,
           source: 'tick',
         ),

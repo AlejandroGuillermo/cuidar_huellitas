@@ -1,9 +1,11 @@
 import '../../Models/mascota_model.dart';
+import '../../Models/mision_activa_model.dart';
 import '../../core/enums/pet_emotion.dart';
 import '../../core/enums/pet_need.dart';
 import '../models/pet_ai_decision.dart';
 import 'anomaly_detector.dart';
 import 'fuzzy_state_engine.dart';
+import 'mission_decision_engine.dart';
 import 'pet_emotion_resolver.dart';
 import 'pet_needs_evaluator.dart';
 
@@ -12,12 +14,14 @@ class PetAiEngine {
   final FuzzyStateEngine fuzzyEngine;
   final PetEmotionResolver emotionResolver;
   final AnomalyDetector? anomalyDetector;
+  final MissionDecisionEngine? missionEngine;
 
   PetAiEngine({
     required this.needsEvaluator,
     required this.fuzzyEngine,
     required this.emotionResolver,
     this.anomalyDetector,
+    this.missionEngine,
   });
 
   PetAiDecision evaluate(MascotaModel mascota) {
@@ -26,30 +30,38 @@ class PetAiEngine {
 
   Future<PetAiDecision> evaluateAsync(
     MascotaModel mascota,
-    String userId,
-  ) async {
-    if (userId.isEmpty || anomalyDetector == null) {
-      return evaluate(mascota);
+    String userId, {
+    List<MisionActivaModel> misionesActivas = const [],
+  }) async {
+    var mascotaActualizada = mascota;
+    var delayedActions = const <String>[];
+
+    if (userId.isNotEmpty && anomalyDetector != null) {
+      final anomaliaActiva = await anomalyDetector!.detectAnomaly(
+        userId,
+        mascota.idMascota,
+        mascota.runtime,
+      );
+      delayedActions = await anomalyDetector!.getDelayedActions(
+        userId,
+        mascota.idMascota,
+        mascota.runtime,
+      );
+
+      mascotaActualizada = mascota.copyWith(
+        anomaliaActiva: anomaliaActiva,
+        anomaliaDetectada: anomaliaActiva,
+      );
     }
 
-    final anomaliaActiva = await anomalyDetector!.detectAnomaly(
-      userId,
-      mascota.idMascota,
-      mascota.runtime,
-    );
-    final delayedActions = await anomalyDetector!.getDelayedActions(
-      userId,
-      mascota.idMascota,
-      mascota.runtime,
-    );
-
-    final mascotaActualizada = mascota.copyWith(
-      anomaliaActiva: anomaliaActiva,
-      anomaliaDetectada: anomaliaActiva,
-    );
-
-    return _evaluateResolved(
+    final baseDecision = _evaluateResolved(
       mascotaActualizada,
+      delayedActions: delayedActions,
+    );
+    return _applyMissionAndDisasterLogic(
+      mascotaActualizada,
+      baseDecision,
+      misionesActivas: misionesActivas,
       delayedActions: delayedActions,
     );
   }
@@ -76,34 +88,59 @@ class PetAiEngine {
       emotion: emotion,
       deterioroRate: deterioroRate,
       anomaliaActiva: mascota.ai.anomaliaActiva,
-      misionRecomendada: _recommendMission(needResult.need, emotion),
-      mensaje: _buildMessage(needResult.need, emotion, delayedActions),
-      generarDesastre: _shouldGenerateDisaster(needResult.need, emotion),
+      misionRecomendada: null,
+      urgenciaMision: null,
+      reemplazarActiva: false,
+      misionesAReemplazar: const [],
+      mensaje: _buildFallbackMessage(needResult.need, emotion, delayedActions),
+      generarDesastre: false,
       calculadoAt: DateTime.now(),
     );
   }
 
-  String? _recommendMission(PetNeed need, PetEmotion emotion) {
-    switch (need) {
-      case PetNeed.health:
-        return 'cuidar_salud';
-      case PetNeed.hunger:
-        return 'alimentar_urgente';
-      case PetNeed.energy:
-        return 'descansar_urgente';
-      case PetNeed.hygiene:
-        return 'limpiar_urgente';
-      case PetNeed.affection:
-        return 'jugar_urgente';
-      case PetNeed.none:
-        if (emotion == PetEmotion.bored) {
-          return 'jugar_urgente';
-        }
-        return null;
+  Future<PetAiDecision> _applyMissionAndDisasterLogic(
+    MascotaModel mascota,
+    PetAiDecision baseDecision, {
+    required List<MisionActivaModel> misionesActivas,
+    required List<String> delayedActions,
+  }) async {
+    var decision = baseDecision.copyWith(
+      generarDesastre: _shouldConsiderDisaster(baseDecision),
+    );
+
+    if (missionEngine != null) {
+      final missionDecision = await missionEngine!.decide(
+        mascota,
+        decision,
+        misionesActivas,
+      );
+
+      if (missionDecision != null) {
+        decision = decision.copyWith(
+          misionRecomendada: missionDecision.misionId,
+          urgenciaMision: missionDecision.urgencia,
+          reemplazarActiva: missionDecision.reemplazarActiva,
+          misionesAReemplazar: missionDecision.misionesAReemplazar,
+          mensaje: _appendDelayedActions(
+            missionDecision.mensaje,
+            delayedActions,
+          ),
+        );
+      } else if (delayedActions.isNotEmpty && decision.mensaje != null) {
+        decision = decision.copyWith(
+          mensaje: _appendDelayedActions(decision.mensaje!, delayedActions),
+        );
+      }
+    } else if (delayedActions.isNotEmpty && decision.mensaje != null) {
+      decision = decision.copyWith(
+        mensaje: _appendDelayedActions(decision.mensaje!, delayedActions),
+      );
     }
+
+    return decision;
   }
 
-  String _buildMessage(
+  String _buildFallbackMessage(
     PetNeed need,
     PetEmotion emotion,
     List<String> delayedActions,
@@ -129,8 +166,23 @@ class PetAiEngine {
     return '$baseMessage. Acciones retrasadas: $delayedLabel.';
   }
 
-  bool _shouldGenerateDisaster(PetNeed need, PetEmotion emotion) {
-    return need == PetNeed.hygiene || emotion == PetEmotion.bored;
+  bool _shouldConsiderDisaster(PetAiDecision decision) {
+    return true;
+  }
+
+  String _appendDelayedActions(
+    String baseMessage,
+    List<String> delayedActions,
+  ) {
+    if (delayedActions.isEmpty) {
+      return baseMessage;
+    }
+
+    final delayedLabel = delayedActions.map(_displayAction).join(', ');
+    if (baseMessage.contains('Acciones retrasadas:')) {
+      return baseMessage;
+    }
+    return '$baseMessage. Acciones retrasadas: $delayedLabel.';
   }
 
   String _displayAction(String accion) {

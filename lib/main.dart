@@ -7,6 +7,7 @@ import 'application/cubits/mission_cubit.dart';
 import 'application/cubits/pet_world_cubit.dart';
 import 'application/services/anomaly_detector.dart';
 import 'application/services/fuzzy_state_engine.dart';
+import 'application/services/mission_decision_engine.dart';
 import 'application/services/pet_activity_resolver.dart';
 import 'application/services/pet_ai_engine.dart';
 import 'application/services/pet_bootstrap_service.dart';
@@ -55,6 +56,7 @@ class MyApp extends StatelessWidget {
       activityResolver: PetActivityResolver(),
     );
     final petRepository = PetRepository();
+    final missionRepository = MissionRepository();
     final progresoRepository = ProgresoRepository();
     final patronRutinaRepository = PatronRutinaRepository();
     final routineAnalyzer = RoutineAnalyzer(
@@ -65,11 +67,15 @@ class MyApp extends StatelessWidget {
       patronRepository: patronRutinaRepository,
     );
     final aiStateRepository = AiStateRepository();
+    final missionDecisionEngine = MissionDecisionEngine(
+      missionRepository: missionRepository,
+    );
     final petAiEngine = PetAiEngine(
       needsEvaluator: const PetNeedsEvaluator(),
       fuzzyEngine: FuzzyStateEngine(),
       emotionResolver: const PetEmotionResolver(),
       anomalyDetector: anomalyDetector,
+      missionEngine: missionDecisionEngine,
     );
 
     return MultiBlocProvider(
@@ -83,6 +89,7 @@ class MyApp extends StatelessWidget {
                     petRepository: petRepository,
                     routineAnalyzer: routineAnalyzer,
                     aiStateRepository: aiStateRepository,
+                    missionRepository: missionRepository,
                   )
                   ..disasterCubit = context.read<DisasterCubit>()
                   ..cargarMascota();
@@ -95,7 +102,7 @@ class MyApp extends StatelessWidget {
         ),
         BlocProvider(
           create: (context) => MissionCubit(
-            missionRepository: MissionRepository(),
+            missionRepository: missionRepository,
             disasterRepository: DisasterRepository(),
           ),
         ),
