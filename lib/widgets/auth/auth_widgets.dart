@@ -156,8 +156,9 @@ class AuthHero extends StatelessWidget {
               Container(
                 width: 140,
                 height: 140,
+                padding: const EdgeInsets.all(18),
                 decoration: const BoxDecoration(
-                  color: Color(0xFFD9D9D9),
+                  color: Colors.white,
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
@@ -167,11 +168,10 @@ class AuthHero extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: const Center(
-                  child: Icon(
-                    Icons.pets_rounded,
-                    size: 58,
-                    color: Colors.white,
+                child: Center(
+                  child: Image.asset(
+                    'assets/images/Logo.png',
+                    fit: BoxFit.contain,
                   ),
                 ),
               ),
