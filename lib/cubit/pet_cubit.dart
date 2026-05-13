@@ -43,6 +43,7 @@ class PetCubit extends Cubit<PetState> {
   static const int _umbralEnergiaBaja = 12;
   static const int _ticksEnergiaBajaParaDano = 2;
   static const int _defaultMissionRewardCoins = 5;
+  static const int _jugarSuciedadBase = 4;
 
   DisasterCubit? disasterCubit;
 
@@ -260,6 +261,11 @@ class PetCubit extends Cubit<PetState> {
             tipo: DisasterType.basura,
             emoji: '💨',
             cantidad: 3,
+          );
+          await _aplicarSuciedadPorDesastre(
+            _puntosSuciedadPorDesastre(DisasterType.basura),
+            accion: 'desastre_rebeldia',
+            extras: {'tipo_desastre': DisasterType.basura.name},
           );
           return 'rebelde_escapado';
         }
@@ -530,6 +536,13 @@ class PetCubit extends Cubit<PetState> {
         tipo: DisasterType.basura,
         emoji: '💨',
         cantidad: 2,
+      );
+      unawaited(
+        _aplicarSuciedadPorDesastre(
+          _puntosSuciedadPorDesastre(DisasterType.basura),
+          accion: 'desastre_interrupcion_sueno',
+          extras: {'tipo_desastre': DisasterType.basura.name},
+        ),
       );
       emit(state.copyWith(estadoMision: 'rebelde_escapado'));
     } else {
@@ -1005,6 +1018,15 @@ class PetCubit extends Cubit<PetState> {
         emoji: emojiComida,
         cantidadPorPantalla: _distribucionComidaTravieso(piezas),
       );
+      await _aplicarSuciedadPorDesastre(
+        _puntosSuciedadPorDesastre(DisasterType.comida),
+        accion: 'desastre_comida_offline',
+        extras: {
+          'tipo_desastre': DisasterType.comida.name,
+          'cantidad_piezas': piezas,
+          'distribuido': true,
+        },
+      );
       return;
     }
 
@@ -1014,6 +1036,15 @@ class PetCubit extends Cubit<PetState> {
       emoji: emojiComida,
       cantidad: piezas,
       pantalla: disasterScreenAlimentar,
+    );
+    await _aplicarSuciedadPorDesastre(
+      _puntosSuciedadPorDesastre(DisasterType.comida),
+      accion: 'desastre_comida_offline',
+      extras: {
+        'tipo_desastre': DisasterType.comida.name,
+        'cantidad_piezas': piezas,
+        'distribuido': false,
+      },
     );
   }
 
@@ -1237,9 +1268,52 @@ class PetCubit extends Cubit<PetState> {
             emoji: r.desastreEmoji ?? '🍖',
             cantidad: r.desastreCantidad,
           );
+          await _aplicarSuciedadPorDesastre(
+            _puntosSuciedadPorDesastre(
+              DisasterType.values.byName(r.desastreTipo!),
+            ),
+            accion: 'reaccion_desastre',
+            extras: {
+              'tipo_desastre': r.desastreTipo!,
+              'cantidad_desastre': r.desastreCantidad,
+              'origen': r.nivel,
+            },
+          );
         }
       }
     }
+  }
+
+  int _puntosSuciedadPorDesastre(DisasterType tipo) {
+    return switch (tipo) {
+      DisasterType.comida => 10,
+      DisasterType.basura => 12,
+      DisasterType.juguete => 6,
+      DisasterType.porcion => 8,
+    };
+  }
+
+  Future<void> _aplicarSuciedadPorDesastre(
+    int puntos, {
+    required String accion,
+    Map<String, dynamic>? extras,
+  }) async {
+    final antes = state.mascota;
+    if (antes == null || puntos <= 0) return;
+
+    final despues = antes.copyWith(
+      nivelLimpieza: (antes.nivelLimpieza - puntos).clamp(0, 100),
+      ultimaInteraccion: DateTime.now(),
+    );
+
+    emit(state.copyWith(mascota: despues));
+    await _guardarEnFirestore(
+      antes: antes,
+      despues: despues,
+      accion: accion,
+      extras: {'puntos_limpieza': -puntos, ...?extras},
+    );
+    await _reprogramarRecordatorioCuidado();
   }
 
   int _calcularDanoSaludCondicional({
@@ -1270,7 +1344,6 @@ class PetCubit extends Cubit<PetState> {
     if (antes == null) return;
     final config = PersonalityRegistry.get(antes.rasgo);
     final mod = config?.acciones;
-
     final despues = antes.copyWith(
       nivelHambre:
           (antes.nivelHambre + (puntosBase * (mod?.alimentarHambre ?? 1.0)))
@@ -1292,16 +1365,24 @@ class PetCubit extends Cubit<PetState> {
       ultimaComida: DateTime.now(),
     );
 
+    final generoDesastreComida =
+        !skipDisasterRoll &&
+        (mod?.alimentarPuedeTirar ?? false) &&
+        _random.nextDouble() < 0.3;
+
     emit(state.copyWith(mascota: despues));
 
-    if (!skipDisasterRoll &&
-        (mod?.alimentarPuedeTirar ?? false) &&
-        _random.nextDouble() < 0.3) {
+    if (generoDesastreComida) {
       await disasterCubit?.generarDesastre(
         mascotaId: antes.idMascota,
         tipo: DisasterType.comida,
         emoji: emojiAlimento ?? '🍖',
         cantidad: 3 + _random.nextInt(4),
+      );
+      await _aplicarSuciedadPorDesastre(
+        _puntosSuciedadPorDesastre(DisasterType.comida),
+        accion: 'desastre_comida_alimentar',
+        extras: {'tipo_desastre': DisasterType.comida.name},
       );
     }
 
@@ -1324,6 +1405,8 @@ class PetCubit extends Cubit<PetState> {
     if (antes == null) return;
     final config = PersonalityRegistry.get(antes.rasgo);
     final mod = config?.acciones;
+    final suciedadAlJugar =
+        _jugarSuciedadBase + (mod?.jugarLimpieza.abs().round() ?? 0);
 
     final despues = antes.copyWith(
       nivelAfecto:
@@ -1341,7 +1424,7 @@ class PetCubit extends Cubit<PetState> {
                       (mod?.jugarHambreCosto ?? 1.0)))
               .round()
               .clamp(0, 100),
-      nivelLimpieza: (antes.nivelLimpieza + (mod?.jugarLimpieza ?? 0.0))
+      nivelLimpieza: (antes.nivelLimpieza - suciedadAlJugar)
           .round()
           .clamp(0, 100),
       nivelSalud: (antes.nivelSalud + (mod?.jugarSaludBonus ?? 0.0))
@@ -1356,7 +1439,10 @@ class PetCubit extends Cubit<PetState> {
       antes: antes,
       despues: despues,
       accion: 'jugar',
-      extras: {'emoji_juguete': emojiJuguete ?? ''},
+      extras: {
+        'emoji_juguete': emojiJuguete ?? '',
+        'puntos_limpieza': -suciedadAlJugar,
+      },
     );
     await _reprogramarRecordatorioCuidado();
     await _verificarReacciones(despues);
@@ -1545,6 +1631,11 @@ class PetCubit extends Cubit<PetState> {
     await _aplicarDecisionMision(despues, decision);
     if (decision.generarDesastre) {
       await disasterCubit?.triggerFromAiDecision(decision);
+      await _aplicarSuciedadPorDesastre(
+        _puntosSuciedadPorDesastre(DisasterType.basura),
+        accion: 'desastre_ai',
+        extras: {'tipo_desastre': DisasterType.basura.name},
+      );
     }
     await _guardarAiHistory(despues, decision);
     await _verificarReacciones(despues);
