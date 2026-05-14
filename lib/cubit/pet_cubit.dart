@@ -44,6 +44,9 @@ class PetCubit extends Cubit<PetState> {
   static const int _ticksEnergiaBajaParaDano = 2;
   static const int _defaultMissionRewardCoins = 5;
   static const int _jugarSuciedadBase = 4;
+  static const String _bathMissionId = 'mision_bano';
+  static const int _bathMissionThreshold = 50;
+  static const int _bathMissionUrgentThreshold = 25;
 
   DisasterCubit? disasterCubit;
 
@@ -193,6 +196,7 @@ class PetCubit extends Cubit<PetState> {
         'tipo_descanso': mascota.tipoDescanso,
       },
     );
+    await _sincronizarMisionBano(despues);
   }
 
   // ── Deterioro por ausencia (estaba despierta) ─────────
@@ -224,6 +228,7 @@ class PetCubit extends Cubit<PetState> {
         'factor_ausencia': ausenciaFactor,
       },
     );
+    await _sincronizarMisionBano(despues);
     await _verificarReacciones(despues);
     await disasterCubit?.verificarDesastre(mascota.idMascota);
   }
@@ -446,6 +451,7 @@ class PetCubit extends Cubit<PetState> {
           },
         );
       }
+      await _sincronizarMisionBano(despues);
     }
   }
 
@@ -955,6 +961,8 @@ class PetCubit extends Cubit<PetState> {
 
   int _recompensaCoinsPorMision(String misionId) {
     switch (misionId) {
+      case _bathMissionId:
+        return 15;
       case 'travieso_recoger_comida':
       case 'jugueton_recoger_comida':
       case 'recoger_comida':
@@ -966,6 +974,8 @@ class PetCubit extends Cubit<PetState> {
 
   String? _tipoPorMision(String misionId) {
     switch (misionId) {
+      case _bathMissionId:
+        return 'bano';
       case 'travieso_recoger_comida':
       case 'jugueton_recoger_comida':
       case 'recoger_comida':
@@ -1244,6 +1254,77 @@ class PetCubit extends Cubit<PetState> {
     }
   }
 
+  Future<void> _sincronizarMisionBano(MascotaModel mascota) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    final nivelLimpieza = mascota.nivelLimpieza;
+    if (nivelLimpieza >= _bathMissionThreshold) return;
+
+    final esUrgente = nivelLimpieza < _bathMissionUrgentThreshold;
+    final rewardCoins = esUrgente ? 30 : 15;
+    final titulo = esUrgente ? 'Baño urgente' : 'Baño necesario';
+    final descripcion = esUrgente
+        ? 'Tu mascota esta muy sucia. Dale un baño completo cuanto antes.'
+        : 'Tu mascota necesita un baño para recuperar su limpieza.';
+
+    try {
+      await _firestore
+          .collection('usuarios')
+          .doc(userId)
+          .collection('mascotas')
+          .doc(mascota.idMascota)
+          .collection('misiones_activas')
+          .doc(_bathMissionId)
+          .set({
+            'id_mision': _bathMissionId,
+            'titulo': titulo,
+            'descripcion': descripcion,
+            'tipo': 'bano',
+            'categoria': 'bano',
+            'accion_trigger': 'banar',
+            'condicion': 'nivel_limpieza < $_bathMissionThreshold',
+            'estado': 'pendiente',
+            'fecha_asignada': Timestamp.now(),
+            'fecha_completada': null,
+            'streak': 0,
+            'reward_coins': rewardCoins,
+            'nivel_limpieza_inicial': nivelLimpieza,
+            'urgencia_bano': esUrgente ? 'urgente' : 'normal',
+          }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Error mision bano: $e');
+    }
+  }
+
+  Future<void> _completarMisionBano(MascotaModel mascota) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    try {
+      final missionRef = _firestore
+          .collection('usuarios')
+          .doc(userId)
+          .collection('mascotas')
+          .doc(mascota.idMascota)
+          .collection('misiones_activas')
+          .doc(_bathMissionId);
+
+      final snap = await missionRef.get();
+      if (!snap.exists) return;
+
+      final data = snap.data() ?? <String, dynamic>{};
+      if ((data['estado'] as String?) != 'pendiente') return;
+
+      await missionRef.set({
+        'estado': 'completada',
+        'fecha_completada': Timestamp.now(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Error completar mision bano: $e');
+    }
+  }
+
   Future<void> _verificarReacciones(MascotaModel mascota) async {
     final config = PersonalityRegistry.get(mascota.rasgo);
     if (config == null) return;
@@ -1444,6 +1525,7 @@ class PetCubit extends Cubit<PetState> {
         'puntos_limpieza': -suciedadAlJugar,
       },
     );
+    await _sincronizarMisionBano(despues);
     await _reprogramarRecordatorioCuidado();
     await _verificarReacciones(despues);
   }
@@ -1476,6 +1558,7 @@ class PetCubit extends Cubit<PetState> {
 
     emit(state.copyWith(mascota: despues));
     await _guardarEnFirestore(antes: antes, despues: despues, accion: 'banar');
+    await _completarMisionBano(despues);
     await _reprogramarRecordatorioCuidado();
     await _verificarReacciones(despues);
   }
@@ -1498,6 +1581,30 @@ class PetCubit extends Cubit<PetState> {
       despues: despues,
       accion: accion,
       extras: {'puntos_limpieza': puntos},
+    );
+    await _sincronizarMisionBano(despues);
+    await _reprogramarRecordatorioCuidado();
+    await _verificarReacciones(despues);
+  }
+
+  Future<void> aumentarAfecto(
+    int puntos, {
+    String accion = 'aumentar_afecto',
+  }) async {
+    final antes = state.mascota;
+    if (antes == null || puntos == 0) return;
+
+    final despues = antes.copyWith(
+      nivelAfecto: (antes.nivelAfecto + puntos).clamp(0, 100),
+      ultimaInteraccion: DateTime.now(),
+    );
+
+    emit(state.copyWith(mascota: despues));
+    await _guardarEnFirestore(
+      antes: antes,
+      despues: despues,
+      accion: accion,
+      extras: {'puntos_afecto': puntos},
     );
     await _reprogramarRecordatorioCuidado();
     await _verificarReacciones(despues);
@@ -1638,6 +1745,7 @@ class PetCubit extends Cubit<PetState> {
       );
     }
     await _guardarAiHistory(despues, decision);
+    await _sincronizarMisionBano(despues);
     await _verificarReacciones(despues);
   }
 

@@ -1,18 +1,32 @@
 import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+
 import '../application/cubits/pet_world_cubit.dart';
 import '../core/app_colors.dart';
 import '../core/app_router.dart';
+import '../core/personality_config.dart';
 import '../cubit/pet_cubit.dart';
-import '../cubit/pet_state.dart';
 import '../domain/enums/pet_activity.dart';
 import '../domain/enums/pet_location.dart';
 import '../widgets/action_screen_header.dart';
-import '../widgets/paw_map_widget.dart';
+import '../widgets/banar/estropajo_tool_widget.dart';
+import '../widgets/banar/manguera_tool_widget.dart';
 import '../widgets/banar/soap_tool_widget.dart';
-import '../widgets/pet_avatar_rive.dart';
+import '../widgets/banar/toalla_tool_widget.dart';
+import '../widgets/paw_map_widget.dart';
+import 'banar/cubit/banar_cubit.dart';
+import 'banar/cubit/banar_state.dart';
+import 'banar/widgets/bath_pet_in_tub_widget.dart';
+import 'banar/widgets/bath_pet_on_floor_widget.dart';
+import 'banar/widgets/bath_progress_panel_widget.dart';
+import 'banar/widgets/bath_scene_widget.dart';
+import 'banar/widgets/bath_status_widget.dart';
+import 'banar/widgets/bath_toolbar_widget.dart';
+import 'banar/widgets/bath_tub_widget.dart';
 
 class BanarScreen extends StatefulWidget {
   const BanarScreen({super.key});
@@ -21,18 +35,16 @@ class BanarScreen extends StatefulWidget {
   State<BanarScreen> createState() => _BanarScreenState();
 }
 
-class _BanarScreenState extends State<BanarScreen>
-    with SingleTickerProviderStateMixin {
-  bool _petInTub = false;
-  double _dragOffset = 0;
-  bool _applyingBath = false;
-  String _bathFeedback = '';
-  bool _soapBubblesActive = false;
-  bool _draggingBathTool = false;
-  DateTime _lastBathToolDropAt = DateTime.fromMillisecondsSinceEpoch(0);
-  Timer? _soapBubbleTimer;
-  late final AnimationController _bubbleController;
-  late final Animation<double> _bubbleFloat;
+class _BanarScreenState extends State<BanarScreen> {
+  static const int _maxBathEscapes = 3;
+
+  bool _applyingBathReward = false;
+  DateTime? _lastEscapeAttemptAt;
+  Timer? _bathMovementTimer;
+  Timer? _bathCalmTimer;
+
+  late final BanarCubit _banarCubit;
+  final Random _random = Random();
 
   final List<_BathTool> _tools = const [
     _BathTool(
@@ -57,17 +69,36 @@ class _BanarScreenState extends State<BanarScreen>
     ),
   ];
 
+  List<BathToolbarItemData<_BathTool>> get _toolbarItems => _tools
+      .map(
+        (tool) => BathToolbarItemData<_BathTool>(
+          data: tool,
+          label: tool.label,
+          color: tool.color,
+          enabled:
+              _petInTub &&
+              _canUseBathTools &&
+              (tool.label != 'Toalla' || _canUseTowel),
+          resetNonce: _toolResetNonce,
+          iconBuilder: (size, enabled) => _buildToolIcon(
+            tool,
+            size: size,
+            enabled: enabled,
+          ),
+          feedbackBuilder: (size) => _buildToolFeedback(tool, size: size),
+          onDragStarted: () {
+            _setDraggingBathTool(true);
+            _banarCubit.setActiveDraggedToolLabel(tool.label);
+          },
+          onDragEnded: () => _setDraggingBathTool(false),
+        ),
+      )
+      .toList();
+
   @override
   void initState() {
     super.initState();
-    _bubbleController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1800),
-    )..repeat(reverse: true);
-
-    _bubbleFloat = Tween<double>(begin: 0, end: -8).animate(
-      CurvedAnimation(parent: _bubbleController, curve: Curves.easeInOut),
-    );
+    _banarCubit = BanarCubit();
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncWorldEntry());
   }
 
@@ -82,168 +113,352 @@ class _BanarScreenState extends State<BanarScreen>
     );
   }
 
-  @override
-  void dispose() {
-    _soapBubbleTimer?.cancel();
-    _bubbleController.dispose();
-    super.dispose();
+  PersonalityConfig? get _currentPersonalityConfig {
+    final mascota = context.read<PetCubit>().state.mascota;
+    if (mascota == null) return null;
+    return PersonalityRegistry.get(mascota.rasgo);
   }
+
+  BanarState get _bathState => _banarCubit.state;
+
+  bool get _isBathDifficult =>
+      _currentPersonalityConfig?.acciones.banarDificil ?? false;
+  bool get _canEscapeBath =>
+      _currentPersonalityConfig?.acciones.banarEscapa ?? false;
+  bool get _petInTub => _bathState.petInTub;
+  double get _dragOffset => _bathState.dragOffset;
+  bool get _draggingBathTool => _bathState.draggingBathTool;
+  String? get _activeDraggedToolLabel => _bathState.activeDraggedToolLabel;
+  int get _soapProgress => _bathState.soapProgress;
+  double get _soapProgressRaw => _bathState.soapProgressRaw;
+  int get _scrubProgress => _bathState.scrubProgress;
+  double get _scrubProgressRaw => _bathState.scrubProgressRaw;
+  int get _rinseProgress => _bathState.rinseProgress;
+  double get _rinseProgressRaw => _bathState.rinseProgressRaw;
+  int get _towelProgress => _bathState.towelProgress;
+  double get _towelProgressRaw => _bathState.towelProgressRaw;
+  String? get _bathStatusMessage => _bathState.bathStatusMessage;
+  double get _petTubOffsetX => _bathState.petTubOffsetX;
+  double get _petTubOffsetY => _bathState.petTubOffsetY;
+  bool get _petIsCalm => _bathState.petIsCalm;
+  int get _calmProgress => _bathState.calmProgress;
+  double get _calmProgressRaw => _bathState.calmProgressRaw;
+  int get _toolResetNonce => _bathState.toolResetNonce;
+  int get _bathEscapeCount => _bathState.bathEscapeCount;
+  bool get _hasBathProgress => _bathState.hasBathProgress;
+  bool get _requiresCalmingBeforeTools => _isBathDifficult;
+  bool get _canUseBathTools => !_requiresCalmingBeforeTools || _petIsCalm;
+  bool get _canUseTowel => _bathState.canUseTowel;
 
   void _setDraggingBathTool(bool value) {
     if (!mounted) return;
-    setState(() {
-      _draggingBathTool = value;
-      if (value) _dragOffset = 0;
+    _banarCubit.setDraggingBathTool(value);
+  }
+
+  @override
+  void dispose() {
+    _stopBathPersonalityEffects();
+    _banarCubit.close();
+    super.dispose();
+  }
+
+  void _meterMascotaEnLaBanera({bool resetProgress = true}) {
+    _banarCubit.enterTub(resetProgress: resetProgress);
+    _startBathPersonalityEffects();
+  }
+
+  void _sacarMascotaDeLaBanera({bool clearStatus = false}) {
+    _stopBathPersonalityEffects();
+    _banarCubit.exitTub(clearStatus: clearStatus);
+  }
+
+  void _startBathPersonalityEffects() {
+    _stopBathPersonalityEffects(resetPosition: false);
+    if (!_isBathDifficult) return;
+    _bathMovementTimer = Timer.periodic(const Duration(milliseconds: 900), (_) {
+      _movePetInsideTub();
+    });
+    _movePetInsideTub();
+  }
+
+  void _stopBathPersonalityEffects({bool resetPosition = true}) {
+    _bathMovementTimer?.cancel();
+    _bathMovementTimer = null;
+    _bathCalmTimer?.cancel();
+    _bathCalmTimer = null;
+    _banarCubit.resetPersonalityEffects(resetPosition: resetPosition);
+  }
+
+  void _movePetInsideTub() {
+    if (!mounted || !_petInTub || !_isBathDifficult) return;
+    _banarCubit.movePetInsideTub(
+      offsetX: (_random.nextDouble() * 0.34) - 0.17,
+      offsetY: (_random.nextDouble() * 0.14) - 0.02,
+    );
+  }
+
+  void _maybeTriggerBathEscape() {
+    if (!_petInTub || !_canEscapeBath || _bathEscapeCount >= _maxBathEscapes) {
+      return;
+    }
+
+    final now = DateTime.now();
+    if (_lastEscapeAttemptAt != null &&
+        now.difference(_lastEscapeAttemptAt!) < const Duration(seconds: 3)) {
+      return;
+    }
+    _lastEscapeAttemptAt = now;
+
+    final progressFactor = (_soapProgressRaw +
+            _scrubProgressRaw +
+            _rinseProgressRaw +
+            _towelProgressRaw) /
+        400;
+    final escapeChance = 0.16 + (progressFactor * 0.18);
+    if (_random.nextDouble() >= escapeChance) return;
+
+    _sacarMascotaDeLaBanera();
+    _banarCubit.registerEscape(
+      'Tu mascota se escapo del bano. Vuelve a meterla en la banera.',
+    );
+  }
+
+  int get _bathAffectionPerCalmStep {
+    final rasgo = _currentPersonalityConfig?.rasgo ?? '';
+    return rasgo == 'Cariñoso' ? 2 : 1;
+  }
+
+  Duration _randomBathCalmDuration() {
+    final seconds = 3 + _random.nextInt(3);
+    return Duration(seconds: seconds);
+  }
+
+  void _extendBathCalmWindow() {
+    if (!_petIsCalm || !_petInTub) return;
+    _bathCalmTimer?.cancel();
+    _bathCalmTimer = Timer(_randomBathCalmDuration(), () {
+      if (!mounted || !_petInTub || !_isBathDifficult) return;
+      _banarCubit.expireCalm('Tu mascota se inquieto. Acariciala otra vez.');
+      _startBathPersonalityEffects();
     });
   }
 
-  bool get _recentBathToolDrop =>
-      DateTime.now().difference(_lastBathToolDropAt) <
-      const Duration(milliseconds: 350);
+  Future<void> _soothePet(DragUpdateDetails details) async {
+    if (!_petInTub || !_requiresCalmingBeforeTools || _draggingBathTool) {
+      return;
+    }
+    if (details.delta.distance <= 2.5) return;
 
-  void _acceptBathTool(_BathTool tool) {
-    _lastBathToolDropAt = DateTime.now();
+    final previousStep = _calmProgress;
+    final nextRaw = (_calmProgressRaw + (details.delta.distance * 0.9)).clamp(
+      0.0,
+      100.0,
+    );
+    final nextStep = ((nextRaw / 25).floor() * 25).clamp(0, 100).toInt();
+
+    if (nextRaw == _calmProgressRaw && nextStep == _calmProgress) return;
+
+    _banarCubit.updateCalmProgress(
+      rawProgress: nextRaw,
+      steppedProgress: nextStep,
+      petIsCalm: nextStep >= 100,
+      message: nextStep >= 100
+          ? 'Ya esta quieta. Ahora usa una herramienta.'
+          : 'Acariciala para calmarla $nextStep%.',
+    );
+
+    if (nextStep > previousStep) {
+      unawaited(
+        context.read<PetCubit>().aumentarAfecto(
+          _bathAffectionPerCalmStep,
+          accion: 'banar_acariciar',
+        ),
+      );
+    }
+
+    if (nextStep >= 100) {
+      _bathMovementTimer?.cancel();
+      _bathMovementTimer = null;
+      _extendBathCalmWindow();
+    }
+  }
+
+  bool _canAcceptPetTool(_BathTool? tool) {
+    return _banarCubit.canAcceptTool(
+      label: tool?.label,
+      canUseBathTools: _canUseBathTools,
+      applyingBathReward: _applyingBathReward,
+    );
+  }
+
+  void _applySoapDrop(_BathTool tool) {
+    if (tool.label != 'Jabon') return;
     _setDraggingBathTool(false);
-    _usarHerramienta(tool);
+    _increaseSoapProgress(3);
   }
 
-  Future<void> _usarHerramienta(_BathTool tool) async {
+  void _increaseSoapProgress(double delta) {
+    if (!_petInTub || delta <= 0 || _soapProgress >= 100) return;
+    _banarCubit.increaseSoapProgress(delta);
+    _movePetInsideTub();
+    _maybeTriggerBathEscape();
+  }
+
+  void _showBathWarning(String message) {
     if (!_petInTub) return;
+    _banarCubit.showBathWarning(message);
+  }
 
-    if (tool.label == 'Jabon') {
-      setState(() {
-        _bathFeedback = 'Jabon aplicado sobre las manchas.';
-        _soapBubblesActive = true;
-      });
-      _soapBubbleTimer?.cancel();
-      _soapBubbleTimer = Timer(const Duration(milliseconds: 1800), () {
-        if (!mounted) return;
-        setState(() => _soapBubblesActive = false);
-      });
+  void _scrubPet(double delta) {
+    if (!_petInTub || delta <= 0) return;
+    final result = _banarCubit.scrub(delta);
+    if (result.hasWarning) {
+      _showBathWarning(result.warning!);
       return;
     }
-    if (tool.label == 'Manguera') {
-      setState(() {
-        _bathFeedback = 'Enjuagando para quitar suciedad.';
-        _soapBubblesActive = false;
-      });
-      return;
-    }
-    if (tool.label == 'Estropajo') {
-      setState(() {
-        _bathFeedback = 'Frotando zonas sucias.';
-        _soapBubblesActive = false;
-      });
-      return;
-    }
-    if (tool.label != 'Toalla' || _applyingBath) return;
+    _movePetInsideTub();
+    _maybeTriggerBathEscape();
+  }
 
-    setState(() {
-      _applyingBath = true;
-      _bathFeedback = 'Secando y cerrando el bano...';
-      _soapBubblesActive = false;
-    });
+  void _rinseSoap(double delta) {
+    if (!_petInTub || delta <= 0) return;
+    final result = _banarCubit.rinseSoap(delta);
+    if (result.hasWarning) {
+      _showBathWarning(result.warning!);
+      return;
+    }
+    _movePetInsideTub();
+    _maybeTriggerBathEscape();
+  }
+
+  Future<void> _dryPet(double delta) async {
+    if (!_petInTub || delta <= 0 || _applyingBathReward) return;
+    final result = _banarCubit.dry(
+      delta: delta,
+      applyingBathReward: _applyingBathReward,
+    );
+    if (result.hasWarning) {
+      _showBathWarning(result.warning!);
+      return;
+    }
+
+    if (result.completed) {
+      _applyingBathReward = true;
+    }
+    _movePetInsideTub();
+    _maybeTriggerBathEscape();
+
+    if (!result.completed) return;
+
     await context.read<PetCubit>().banar();
     if (!mounted) return;
-    setState(() {
-      _applyingBath = false;
-      _bathFeedback = 'Bano completado. Limpieza actualizada.';
-    });
+    _applyingBathReward = false;
+    _banarCubit.finishBathReward('Bano completado. Limpieza aplicada.');
+    _stopBathPersonalityEffects();
   }
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
     final worldState = context.watch<PetWorldCubit>().state;
     final canShowPet =
         !worldState.isLocationLocked ||
         worldState.location == PetLocation.banar;
+
     if (!canShowPet && _petInTub) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        setState(() => _petInTub = false);
+        _sacarMascotaDeLaBanera();
       });
     }
 
-    return GestureDetector(
-      onHorizontalDragUpdate: (details) {
-        if (_draggingBathTool) return;
-        // Detecta swipe hacia la derecha.
-        if (details.delta.dx > 0) {
-          setState(
-            () => _dragOffset = (_dragOffset + details.delta.dx).clamp(
-              0.0, // No deja que se mueva a la izquierda (negativo)
-              size.width, // Tope máximo a la derecha (el ancho de la pantalla)
-            ),
-          );
-        }
-      },
-      onHorizontalDragEnd: (details) {
-        if (_draggingBathTool) return;
-        // 2. Evaluamos arrastre largo a la derecha o movimiento rápido a la derecha (velocidad positiva)
-        if (_dragOffset > size.width * 0.3 ||
-            (details.primaryVelocity ?? 0) > 500) {
-          // Si se cumple, navegamos a la pantalla de dormir
-          context.go(AppRoutes.dormir);
-        } else {
-          // Si te arrepientes a medio camino, regresa de golpe a la posición original
-          setState(() => _dragOffset = 0);
-        }
-      },
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: Container(
-              color: const Color(0xFFC7E6F7),
-              child: Transform.translate(
-                offset: Offset(_dragOffset, 0),
-                child: Container(
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Color(0xFFEAF8FF),
-                        Color(0xFFD7F0FF),
-                        Color(0xFFC7E6F7),
-                      ],
-                    ),
+    return BlocProvider.value(
+      value: _banarCubit,
+      child: BlocBuilder<BanarCubit, BanarState>(
+        builder: (context, state) {
+          final viewportSize = MediaQuery.of(context).size;
+
+          return GestureDetector(
+            onHorizontalDragUpdate: (details) {
+              if (_draggingBathTool || _petInTub) return;
+              if (details.delta.dx > 0) {
+                _banarCubit.setDragOffset(
+                  (_dragOffset + details.delta.dx).clamp(
+                    0.0,
+                    viewportSize.width,
                   ),
-                  child: SafeArea(
-                    top: false,
-                    child: Column(
-                      children: [
-                        ActionScreenHeader(
-                          icon: Icons.bathtub,
-                          title: 'Hora del bano',
-                          subtitlePrefix: 'Vamos a dejar limpio a',
-                          statLabel: 'Limpieza:',
-                          statSelector: (mascota) => mascota.nivelLimpieza,
-                          barColors: const [
-                            Color(0xFF8AD8FF),
-                            AppColors.nivelLimpieza,
-                          ],
-                        ),
-                        Expanded(
-                          child: LayoutBuilder(
-                            builder: (context, constraints) {
-                              final size = Size(
-                                constraints.maxWidth,
-                                constraints.maxHeight,
-                              );
-                              return _buildBathroom(size, canShowPet);
-                            },
+                );
+              }
+            },
+            onHorizontalDragEnd: (details) {
+              if (_draggingBathTool || _petInTub) return;
+              if (_dragOffset > viewportSize.width * 0.3 ||
+                  (details.primaryVelocity ?? 0) > 500) {
+                context.go(AppRoutes.dormir);
+              } else {
+                _banarCubit.setDragOffset(0);
+              }
+            },
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Container(
+                    color: const Color(0xFFC7E6F7),
+                    child: Transform.translate(
+                      offset: Offset(_dragOffset, 0),
+                      child: Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Color(0xFFEAF8FF),
+                              Color(0xFFD7F0FF),
+                              Color(0xFFC7E6F7),
+                            ],
                           ),
                         ),
-                      ],
+                        child: SafeArea(
+                          top: false,
+                          child: Column(
+                            children: [
+                              ActionScreenHeader(
+                                icon: Icons.bathtub,
+                                title: 'Hora del bano',
+                                subtitlePrefix: 'Vamos a dejar limpio a',
+                                statLabel: 'Limpieza:',
+                                statSelector: (mascota) => mascota.nivelLimpieza,
+                                barColors: const [
+                                  Color(0xFF8AD8FF),
+                                  AppColors.nivelLimpieza,
+                                ],
+                              ),
+                              Expanded(
+                                child: LayoutBuilder(
+                                  builder: (context, constraints) {
+                                    final size = Size(
+                                      constraints.maxWidth,
+                                      constraints.maxHeight,
+                                    );
+                                    return _buildBathroom(size, canShowPet);
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
+                Positioned(
+                  right: 16,
+                  bottom: 16,
+                  child: _buildPawMapButton(),
+                ),
+              ],
             ),
-          ),
-          Positioned(right: 16, bottom: 16, child: _buildPawMapButton()),
-        ],
+          );
+        },
       ),
     );
   }
@@ -262,13 +477,12 @@ class _BanarScreenState extends State<BanarScreen>
     final floorHeight = size.height * 0.34;
     final petFloorBottom = floorHeight * 0.14;
     final tubBottomCollapsed = floorHeight - 28;
-    final tubBottomExpanded = petFloorBottom;
+    final tubBottomExpanded = floorHeight * 0.14;
     final transitionDuration = Duration(milliseconds: _petInTub ? 520 : 440);
     final positionCurve = _petInTub
         ? Curves.easeOutBack
         : Curves.easeInOutCubic;
 
-    // --- mismas medidas base de la tina para poder posicionar la barra ---
     final expandedWidth = size.width * 0.78;
     final compactWidth = size.width * 0.56;
     final tubWidth = (_petInTub ? expandedWidth : compactWidth)
@@ -293,89 +507,53 @@ class _BanarScreenState extends State<BanarScreen>
     final toolBarAboveTubBottom = (tubBottom + tubHeight + 64)
         .clamp(100.0, size.height * 0.78)
         .toDouble();
+    final showBathStatus =
+        _petInTub &&
+        (_bathStatusMessage != null ||
+            _soapProgress > 0 ||
+            _scrubProgress > 0 ||
+            (_requiresCalmingBeforeTools && !_petIsCalm));
+    final bathStatusBottom = (tubBottom - 54).clamp(12.0, size.height * 0.18);
+    final showProgressPanel = _petInTub && canShowPet;
 
-    return Stack(
-      children: [
-        Positioned.fill(child: _buildWall()),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          height: floorHeight,
-          child: _buildFloor(),
-        ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: floorHeight - 6,
-          height: 12,
-          child: Container(color: const Color(0xFF8FB3C2)),
-        ),
-        Positioned(
-          top: size.height * 0.08,
-          left: size.width * 0.08,
-          child: _buildMirror(),
-        ),
-        Positioned(
-          top: size.height * 0.11,
-          right: size.width * 0.12,
-          child: _buildShowerHead(),
-        ),
-
-        if (showToolBar)
-          AnimatedPositioned(
-            duration: const Duration(milliseconds: 360),
-            curve: Curves.easeOutCubic,
-            left: toolBarLeft,
-            bottom: toolBarAboveTubBottom,
-            child: AnimatedScale(
-              duration: const Duration(milliseconds: 320),
-              curve: Curves.easeOutBack,
-              scale: _petInTub ? 1 : 0.92,
-              child: AnimatedOpacity(
-                duration: const Duration(milliseconds: 220),
-                opacity: _petInTub ? 1 : 0,
-                child: _buildToolBar(width: toolBarWidth),
-              ),
+    return BathSceneWidget(
+      floorHeight: floorHeight,
+      petFloorBottom: petFloorBottom,
+      showProgressPanel: showProgressPanel,
+      progressPanel: BathProgressPanelWidget(
+        size: size,
+        soapProgress: _soapProgress,
+        scrubProgress: _scrubProgress,
+        rinseProgress: _rinseProgress,
+        towelProgress: _towelProgress,
+      ),
+      showToolBar: showToolBar,
+      toolBarLeft: toolBarLeft,
+      toolBarAboveTubBottom: toolBarAboveTubBottom,
+      petInTub: _petInTub,
+      toolBar: BathToolbarWidget<_BathTool>(
+        width: toolBarWidth,
+        items: _toolbarItems,
+      ),
+      canShowPet: canShowPet,
+      petOnFloor: _buildPetOnFloor(size),
+      transitionDuration: transitionDuration,
+      positionCurve: positionCurve,
+      tubBottom: tubBottom,
+      tub: _buildTub(canShowPet),
+      showBathStatus: showBathStatus,
+      bathStatusBottom: bathStatusBottom,
+      bathStatus: BathStatusWidget(
+        text: _bathStatusMessage ??
+            _bathState.buildStepStatusText(
+              requiresCalmingBeforeTools: _requiresCalmingBeforeTools,
             ),
-          ),
-
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: petFloorBottom,
-          child: IgnorePointer(
-            ignoring: _petInTub,
-            child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 220),
-              curve: Curves.easeOut,
-              opacity: _petInTub ? 0 : 1,
-              child: AnimatedSlide(
-                duration: const Duration(milliseconds: 220),
-                curve: Curves.easeOut,
-                offset: _petInTub ? const Offset(0, 0.12) : Offset.zero,
-                child: canShowPet
-                    ? _buildPetOnFloor(size)
-                    : const SizedBox.shrink(),
-              ),
-            ),
-          ),
-        ),
-        AnimatedPositioned(
-          duration: transitionDuration,
-          curve: positionCurve,
-          left: 0,
-          right: 0,
-          bottom: tubBottom,
-          child: _buildTub(size, canShowPet),
-        ),
-        Positioned(
-          left: 24,
-          right: size.width * 0.38,
-          bottom: 28,
-          child: _buildHintCard(canShowPet),
-        ),
-      ],
+      ),
+      wall: _buildWall(),
+      floor: _buildFloor(),
+      mirror: _buildMirror(),
+      sizeHeight: size.height,
+      sizeWidth: size.width,
     );
   }
 
@@ -464,191 +642,61 @@ class _BanarScreenState extends State<BanarScreen>
     );
   }
 
-  Widget _buildShowerHead() {
-    return Column(
-      children: [
-        Container(
-          width: 60,
-          height: 10,
-          decoration: BoxDecoration(
-            color: const Color(0xFF7E98A6),
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: Container(
-            width: 7,
-            height: 44,
-            margin: const EdgeInsets.only(right: 10),
-            decoration: BoxDecoration(
-              color: const Color(0xFF7E98A6),
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-        ),
-        Container(
-          width: 36,
-          height: 20,
-          decoration: BoxDecoration(
-            color: const Color(0xFF95AFBB),
-            borderRadius: BorderRadius.circular(18),
-          ),
-        ),
-        if (_petInTub)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: List.generate(
-                10,
-                (_) => Container(
-                  width: 5,
-                  height: 14,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.78),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildToolBar({required double width}) {
-    final compactLayout = width < 340;
-    final iconSize = compactLayout ? 20.0 : 22.0;
-    final labelSize = compactLayout ? 7.4 : 8.0;
-    final verticalPadding = compactLayout ? 8.0 : 10.0;
-
-    return Container(
-      width: width,
-      padding: EdgeInsets.symmetric(
-        horizontal: compactLayout ? 10 : 12,
-        vertical: verticalPadding,
-      ),
-      decoration: BoxDecoration(
-        color: const Color(0xFF6C8FA3).withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(26),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.35),
-          width: 1.4,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.16),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.max,
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: _tools
-            .map(
-              (tool) => Expanded(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: compactLayout ? 2 : 4,
-                  ),
-                  child: _buildToolItem(
-                    tool,
-                    iconSize: iconSize,
-                    labelSize: labelSize,
-                    compactLayout: compactLayout,
-                  ),
-                ),
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-
-  Widget _buildToolItem(
+  Widget _buildToolIcon(
     _BathTool tool, {
-    required double iconSize,
-    required double labelSize,
-    required bool compactLayout,
+    required double size,
+    required bool enabled,
   }) {
-    final enabled = _petInTub && !_applyingBath;
-
-    Widget tile({required double opacity, bool tappable = true}) {
-      final content = Opacity(
-        opacity: opacity,
-        child: Container(
-          padding: EdgeInsets.symmetric(
-            vertical: compactLayout ? 8 : 10,
-            horizontal: 4,
-          ),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.97),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: tool.color.withValues(alpha: 0.78),
-              width: 2,
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (tool.label == 'Jabon')
-                SoapToolWidget(enabled: enabled, size: iconSize * 2.2)
-              else
-                Icon(tool.icon, color: const Color(0xFF4A6472), size: iconSize),
-              if (tool.label != 'Jabon') ...[
-                SizedBox(height: compactLayout ? 2 : 4),
-                Text(
-                  tool.label,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: labelSize,
-                    fontWeight: FontWeight.w800,
-                    color: const Color(0xFF4A6472),
-                    height: 1.0,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      );
-
-      if (!tappable) return content;
-
-      return GestureDetector(
-        onTap: enabled ? () => _usarHerramienta(tool) : null,
-        child: content,
-      );
+    if (tool.label == 'Jabon') {
+      return SoapToolWidget(enabled: enabled, size: size);
+    }
+    if (tool.label == 'Estropajo') {
+      return EstropajoToolWidget(enabled: enabled, size: size);
+    }
+    if (tool.label == 'Manguera') {
+      return MangueraToolWidget(enabled: enabled, size: size);
+    }
+    if (tool.label == 'Toalla') {
+      return ToallaToolWidget(enabled: enabled, size: size);
     }
 
-    if (!enabled) {
-      return tile(opacity: 0.6);
-    }
-
-    return Draggable<_BathTool>(
-      data: tool,
-      rootOverlay: true,
-      onDragStarted: () => _setDraggingBathTool(true),
-      onDragEnd: (_) => _setDraggingBathTool(false),
-      onDraggableCanceled: (_, _) => _setDraggingBathTool(false),
-      onDragCompleted: () => _setDraggingBathTool(false),
-      feedback: Material(
-        color: Colors.transparent,
-        child: IgnorePointer(
-          child: _buildToolFeedback(tool, size: compactLayout ? 54 : 60),
-        ),
-      ),
-      childWhenDragging: tile(opacity: 0.35, tappable: false),
-      child: tile(opacity: 1.0),
-    );
+    return Icon(tool.icon, color: const Color(0xFF4A6472), size: size * 0.45);
   }
 
   Widget _buildToolFeedback(_BathTool tool, {required double size}) {
+    if (tool.label == 'Jabon') {
+      return Material(
+        color: Colors.transparent,
+        child: IgnorePointer(
+          child: SoapToolWidget(enabled: true, size: size),
+        ),
+      );
+    }
+    if (tool.label == 'Manguera') {
+      return Material(
+        color: Colors.transparent,
+        child: IgnorePointer(
+          child: MangueraToolWidget(enabled: true, size: size),
+        ),
+      );
+    }
+    if (tool.label == 'Estropajo') {
+      return Material(
+        color: Colors.transparent,
+        child: IgnorePointer(
+          child: EstropajoToolWidget(enabled: true, size: size),
+        ),
+      );
+    }
+    if (tool.label == 'Toalla') {
+      return Material(
+        color: Colors.transparent,
+        child: IgnorePointer(
+          child: ToallaToolWidget(enabled: true, size: size),
+        ),
+      );
+    }
+
     return DecoratedBox(
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.92),
@@ -666,310 +714,72 @@ class _BanarScreenState extends State<BanarScreen>
         width: size,
         height: size,
         child: Center(
-          child: tool.label == 'Jabon'
-              ? Icon(
-                  Icons.soap_outlined,
-                  color: const Color(0xFF4A6472),
-                  size: size * 0.48,
-                )
-              : Icon(
-                  tool.icon,
-                  color: const Color(0xFF4A6472),
-                  size: size * 0.48,
-                ),
+          child: Icon(
+            tool.icon,
+            color: const Color(0xFF4A6472),
+            size: size * 0.48,
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildTub(Size size, bool canShowPet) {
-    final expandedWidth = size.width * 0.78;
-    final compactWidth = size.width * 0.56;
-    final tubWidth = (_petInTub ? expandedWidth : compactWidth)
-        .clamp(220.0, size.width * 0.82)
-        .toDouble();
-    final tubHeight = tubWidth * 0.62;
-    final tubTransitionDuration = Duration(milliseconds: _petInTub ? 520 : 440);
-    final tubSizeCurve = _petInTub ? Curves.easeOutBack : Curves.easeInOutCubic;
-
-    return Center(
-      child: DragTarget<_BathTool>(
-        onWillAcceptWithDetails: (_) =>
-            _petInTub && canShowPet && !_applyingBath,
-        onAcceptWithDetails: (details) => _acceptBathTool(details.data),
-        builder: (context, candidates, rejected) {
-          final isHovering = candidates.isNotEmpty;
-
-          return GestureDetector(
-            onTap: () {
-              if (_draggingBathTool || _recentBathToolDrop) return;
-              if (!canShowPet) {
-                ScaffoldMessenger.of(context)
-                  ..clearSnackBars()
-                  ..showSnackBar(
-                    const SnackBar(
-                      content: Text('Tu mascota esta en otra pantalla.'),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                return;
-              }
-              if (_petInTub) {
-                _sacarMascotaDeLaBanera();
-                return;
-              }
-              setState(() => _petInTub = true);
-            },
-            child: AnimatedContainer(
-              duration: tubTransitionDuration,
-              curve: tubSizeCurve,
-              width: tubWidth,
-              height: tubHeight * 1.45,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(48),
-                boxShadow: isHovering
-                    ? [
-                        BoxShadow(
-                          color: Colors.white.withValues(alpha: 0.18),
-                          blurRadius: 24,
-                          spreadRadius: 4,
-                        ),
-                      ]
-                    : const [],
+  Widget _buildTub(bool canShowPet) {
+    return BathTubWidget(
+      petInTub: _petInTub,
+      canShowPet: canShowPet,
+      draggingBathTool: _draggingBathTool,
+      onTapTub: () {
+        if (!canShowPet) {
+          ScaffoldMessenger.of(context)
+            ..clearSnackBars()
+            ..showSnackBar(
+              const SnackBar(
+                content: Text('Tu mascota esta en otra pantalla.'),
+                behavior: SnackBarBehavior.floating,
               ),
-              child: Stack(
-                clipBehavior: Clip.none,
-                alignment: Alignment.bottomCenter,
-                children: [
-                  Positioned(
-                    bottom: 0,
-                    child: Container(
-                      width: tubWidth * 0.85,
-                      height: 14,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(999),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.13),
-                            blurRadius: 28,
-                            spreadRadius: 6,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: tubHeight * 0.02,
-                    left: tubWidth * 0.13,
-                    child: _buildTubLeg(tubWidth),
-                  ),
-                  Positioned(
-                    bottom: tubHeight * 0.02,
-                    right: tubWidth * 0.13,
-                    child: _buildTubLeg(tubWidth),
-                  ),
-                  Positioned(
-                    bottom: tubHeight * 0.09,
-                    child: Container(
-                      width: tubWidth,
-                      height: tubHeight * 0.88,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.white,
-                            Color(0xFFF5F5F7),
-                            Color(0xFFE8E8ED),
-                          ],
-                        ),
-                        borderRadius: const BorderRadius.only(
-                          topLeft: Radius.circular(28),
-                          topRight: Radius.circular(28),
-                          bottomLeft: Radius.circular(110),
-                          bottomRight: Radius.circular(110),
-                        ),
-                        border: Border.all(color: Colors.white, width: 6),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.12),
-                            blurRadius: 24,
-                            offset: const Offset(0, 10),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: tubHeight * 0.80,
-                    child: Container(
-                      width: tubWidth * 1.04,
-                      height: tubHeight * 0.22,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [Color(0xFFFFFFFF), Color(0xFFEEEEF3)],
-                        ),
-                        borderRadius: BorderRadius.circular(999),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.07),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: tubHeight * 0.38,
-                    child: Container(
-                      width: tubWidth * 0.55,
-                      height: tubHeight * 0.10,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(999),
-                        color: Colors.white.withValues(alpha: 0.55),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: tubHeight * 0.10,
-                    child: Container(
-                      width: tubWidth * 0.13,
-                      height: tubHeight * 0.10,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFDDDDE4),
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: const Color(0xFFCCCCD4),
-                          width: 1,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: tubHeight * 0.80,
-                    right: tubWidth * 0.11,
-                    child: Container(
-                      width: tubWidth * 0.022,
-                      height: tubHeight * 0.38,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: const Color(0xFFDDDDE4),
-                          width: 0.8,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: tubHeight * 1.18,
-                    right: tubWidth * 0.085,
-                    child: Container(
-                      width: tubWidth * 0.11,
-                      height: tubHeight * 0.06,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(
-                          color: const Color(0xFFDDDDE4),
-                          width: 0.8,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: tubHeight * 1.185,
-                    right: tubWidth * 0.074,
-                    child: Container(
-                      width: tubWidth * 0.06,
-                      height: tubWidth * 0.06,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF86DE63),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Center(
-                        child: Container(
-                          width: tubWidth * 0.034,
-                          height: tubWidth * 0.034,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF6FCC4E),
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (_petInTub && canShowPet)
-                    Positioned(
-                      top: tubHeight * 0.18,
-                      right: tubWidth * 0.05,
-                      child: Material(
-                        color: Colors.white.withValues(alpha: 0.92),
-                        shape: const CircleBorder(),
-                        elevation: 3,
-                        child: InkWell(
-                          customBorder: const CircleBorder(),
-                          onTap: _sacarMascotaDeLaBanera,
-                          child: const Padding(
-                            padding: EdgeInsets.all(8),
-                            child: Icon(
-                              Icons.close,
-                              size: 18,
-                              color: Color(0xFF58717D),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  if (!_petInTub) ...[
-                    Positioned(
-                      bottom: tubHeight * 1.10,
-                      right: tubWidth * 0.115,
-                      child: _buildDrip(tubWidth, delay: 0),
-                    ),
-                    Positioned(
-                      bottom: tubHeight * 0.98,
-                      right: tubWidth * 0.115,
-                      child: _buildDrip(tubWidth, delay: 800),
-                    ),
-                  ],
-                  if (_petInTub)
-                    Positioned(
-                      bottom: tubHeight * 0.34,
-                      left: 0,
-                      right: 0,
-                      child: TweenAnimationBuilder<double>(
-                        tween: Tween(begin: 0.0, end: 1.0),
-                        duration: const Duration(milliseconds: 420),
-                        curve: Curves.elasticOut,
-                        builder: (context, value, child) => Transform.scale(
-                          scale: value,
-                          alignment: Alignment.bottomCenter,
-                          child: child,
-                        ),
-                        child: _buildPetInTubEmoji(tubWidth, tubHeight),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
+            );
+          return;
+        }
+        if (_petInTub) {
+          _sacarMascotaDeLaBanera(clearStatus: true);
+          return;
+        }
+        _meterMascotaEnLaBanera(resetProgress: !_hasBathProgress);
+      },
+      buildTubLeg: _buildTubLeg,
+      buildDrip: _buildDrip,
+      buildPetInTub: _buildPetInTub,
     );
   }
 
-  void _sacarMascotaDeLaBanera() {
-    if (!_petInTub) return;
-    _soapBubbleTimer?.cancel();
-    setState(() {
-      _petInTub = false;
-      _bathFeedback = 'La mascota salio de la banera.';
-      _soapBubblesActive = false;
-    });
+  Widget _buildPetInTub(double tubWidth) {
+    final petSize = (tubWidth * 0.98).clamp(164.0, 220.0);
+    final isHoveringTool = _activeDraggedToolLabel == 'Jabon' ||
+        _activeDraggedToolLabel == 'Estropajo';
+
+    return BathPetInTubWidget<_BathTool>(
+      petSize: petSize,
+      canAcceptTool: _canAcceptPetTool,
+      onMoveTool: (details) {
+        final tool = details.data;
+        if (tool.label == 'Jabon') {
+          _increaseSoapProgress(0.6);
+        } else if (tool.label == 'Estropajo') {
+          _scrubPet(0.6);
+        } else if (tool.label == 'Manguera') {
+          _rinseSoap(0.6);
+        } else if (tool.label == 'Toalla') {
+          _dryPet(0.6);
+        }
+      },
+      onAcceptTool: (details) => _applySoapDrop(details.data),
+      isHoveringTool: isHoveringTool,
+      onPanUpdate: _soothePet,
+      slideDuration: Duration(milliseconds: _isBathDifficult ? 380 : 220),
+      slideOffset: Offset(_petTubOffsetX, _petTubOffsetY),
+      tipoMascota: _tipoMascotaActual(),
+    );
   }
 
   Widget _buildTubLeg(double tubWidth) {
@@ -1012,185 +822,16 @@ class _BanarScreenState extends State<BanarScreen>
     );
   }
 
-  Widget _buildPetInTubEmoji(double tubWidth, double tubHeight) {
-    return AnimatedBuilder(
-      animation: _bubbleFloat,
-      builder: (context, child) {
-        return Transform.translate(
-          offset: Offset(0, _bubbleFloat.value),
-          child: child,
-        );
-      },
-      // TODO: Reemplazar este emoji por la animacion de Rive cuando este lista.
-      child: SizedBox(
-        width: tubWidth * 0.52,
-        height: tubHeight * 0.42,
-        child: Stack(
-          clipBehavior: Clip.none,
-          alignment: Alignment.center,
-          children: [
-            if (_soapBubblesActive) ..._buildSoapBubbles(tubWidth, tubHeight),
-            PetAvatarRive(
-              tipoMascota: _tipoMascotaActual(),
-              width: tubWidth * 0.46,
-              height: tubWidth * 0.46,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  List<Widget> _buildSoapBubbles(double tubWidth, double tubHeight) {
-    final bubbleColor = Colors.white.withValues(alpha: 0.95);
-    return [
-      Positioned(
-        top: tubHeight * 0.01,
-        left: tubWidth * 0.12,
-        child: _soapBubble(tubWidth * 0.055, bubbleColor),
-      ),
-      Positioned(
-        top: tubHeight * 0.06,
-        right: tubWidth * 0.10,
-        child: _soapBubble(tubWidth * 0.042, bubbleColor),
-      ),
-      Positioned(
-        top: tubHeight * 0.12,
-        left: tubWidth * 0.06,
-        child: _soapBubble(tubWidth * 0.038, bubbleColor),
-      ),
-      Positioned(
-        top: tubHeight * 0.15,
-        right: tubWidth * 0.20,
-        child: _soapBubble(tubWidth * 0.030, bubbleColor),
-      ),
-      Positioned(
-        bottom: tubHeight * 0.04,
-        left: tubWidth * 0.16,
-        child: _soapBubble(tubWidth * 0.034, bubbleColor),
-      ),
-      Positioned(
-        bottom: tubHeight * 0.02,
-        right: tubWidth * 0.14,
-        child: _soapBubble(tubWidth * 0.028, bubbleColor),
-      ),
-    ];
-  }
-
-  Widget _soapBubble(double size, Color color) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.white.withValues(alpha: 0.4),
-            blurRadius: 6,
-            offset: const Offset(0, 1),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildPetOnFloor(Size size) {
-    return AnimatedBuilder(
-      animation: _bubbleFloat,
-      builder: (context, child) {
-        return Transform.translate(
-          offset: Offset(0, _bubbleFloat.value * 0.5),
-          child: child,
-        );
-      },
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          PetAvatarRive(
-            tipoMascota: _tipoMascotaActual(),
-            width: size.width * 0.30,
-            height: size.width * 0.30,
-          ),
-          const SizedBox(height: 4),
-          Container(
-            width: size.width * 0.12,
-            height: 8,
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(999),
-            ),
-          ),
-        ],
-      ),
+    final petSize = (size.width * 0.38).clamp(130.0, 190.0);
+    return BathPetOnFloorWidget(
+      petSize: petSize,
+      tipoMascota: _tipoMascotaActual(),
     );
   }
 
   String _tipoMascotaActual() {
     return context.read<PetCubit>().state.mascota?.tipoMascota ?? 'perro';
-  }
-
-  Widget _buildHintCard(bool canShowPet) {
-    return BlocBuilder<PetCubit, PetState>(
-      builder: (context, state) {
-        final mascota = state.mascota;
-        if (mascota == null) {
-          return const SizedBox.shrink();
-        }
-        if (!canShowPet) {
-          return Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.9),
-              borderRadius: BorderRadius.circular(22),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.08),
-                  blurRadius: 16,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: const Text(
-              'Tu mascota esta ocupada en otra pantalla.',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF58717D),
-              ),
-            ),
-          );
-        }
-        final mensaje = !_petInTub
-            ? 'La banera esta vacia. Toca la banera para meter a la mascota.'
-            : (_bathFeedback.isNotEmpty
-                  ? _bathFeedback
-                  : 'Toca la banera otra vez o la X para sacarla.');
-
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.9),
-            borderRadius: BorderRadius.circular(22),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.08),
-                blurRadius: 16,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Text(
-            mensaje,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF58717D),
-            ),
-          ),
-        );
-      },
-    );
   }
 }
 
