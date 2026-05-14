@@ -70,6 +70,12 @@ flutter:
 
   assets:
     - assets/images/gato_vectorized.svg
+    - assets/images/gato_vectorized_body.svg
+    - assets/images/gato_vectorized_tail.svg
+    - assets/images/gato_vectorized_eye_left.svg
+    - assets/images/gato_vectorized_eye_right.svg
+    - assets/images/gato_vectorized_ear_left.svg
+    - assets/images/gato_vectorized_ear_right.svg
     - assets/images/Corazon_Huellitas.png
     - assets/images/Celular.png
     - assets/images/Logo.png

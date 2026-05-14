@@ -14,6 +14,7 @@ import '../domain/enums/pet_location.dart';
 import '../widgets/action_screen_header.dart';
 import '../widgets/armario_widget.dart';
 import '../widgets/paw_map_widget.dart';
+import '../widgets/pet_avatar_rive.dart';
 import '../widgets/ventana_habitacion.dart';
 
 enum _ModoHora { manana, tarde, noche }
@@ -488,7 +489,7 @@ class _DormirScreenState extends State<DormirScreen>
             Positioned(top: h * 0.12, right: w * 0.06, child: _buildEstante()),
             // Armario de items (debajo del estante, pared derecha)
             Positioned(
-              top: h * 0.189 + 78,   // justo debajo del estante
+              top: h * 0.189 + 78, // justo debajo del estante
               right: w * 0.02,
               child: ArmarioWidget(
                 maxHeight: (h * 0.65 - (h * 0.12 + 78)).clamp(100.0, 260.0),
@@ -809,7 +810,13 @@ class _DormirScreenState extends State<DormirScreen>
                 clipBehavior: Clip.none,
                 alignment: Alignment.topCenter,
                 children: [
-                  Text(petEmoji, style: const TextStyle(fontSize: 90)),
+                  enCama
+                      ? Text(petEmoji, style: const TextStyle(fontSize: 90))
+                      : PetAvatarRive(
+                          tipoMascota: mascota?.tipoMascota ?? 'gato',
+                          width: 190,
+                          height: 190,
+                        ),
 
                   if (descanso == 'dormido')
                     const Positioned(
