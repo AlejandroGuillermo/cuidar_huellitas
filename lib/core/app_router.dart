@@ -6,6 +6,7 @@ import '../screens/register_screen.dart';
 import '../screens/adopcion_screen.dart';
 import '../screens/home_screen.dart';
 import '../screens/alimentar_screen.dart';
+import '../screens/ar_screen.dart';
 import '../screens/curar_screen.dart';
 import '../screens/jugar_screen.dart';
 import '../screens/dormir_screen.dart';
@@ -93,7 +94,7 @@ final appRouter = GoRouter(
             GoRoute(
               path: 'mascota/ar',
               name: 'ar',
-              builder: (context, state) => const Placeholder(), // ArScreen
+              builder: (context, state) => const ArScreen(),
             ),
             GoRoute(
               path: 'alimentar',

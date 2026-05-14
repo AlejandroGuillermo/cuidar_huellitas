@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:cuidar_huellitas/application/cubits/mission_cubit.dart';
 import 'package:cuidar_huellitas/application/cubits/pet_world_cubit.dart';
 import 'package:cuidar_huellitas/cubit/pet_state.dart';
@@ -90,10 +90,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   // Eliminadas funciones de cámara
-  void _showCameraComingSoon() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Funcionalidad de cámara próximamente')),
-    );
+  void _openArScreen() {
+    context.push(AppRoutes.ar);
   }
 
   @override
@@ -222,7 +220,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                             _HeaderButton(
                               icon: Icons.camera_alt,
                               color: AppColors.azulPrincipal,
-                              onTap: _showCameraComingSoon,
+                              onTap: _openArScreen,
                             ),
                             SizedBox(
                               width: MediaQuery.of(context).size.width * 0.03,
