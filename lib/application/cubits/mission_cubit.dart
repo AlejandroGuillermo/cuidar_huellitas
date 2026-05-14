@@ -136,6 +136,15 @@ class MissionCubit extends Cubit<MissionState> {
     _activeMascotaId = null;
   }
 
+  Future<void> reset() async {
+    await _stopWatching();
+    _latestMissions = const [];
+    _latestDisasters = const [];
+    _receivedMissions = false;
+    _receivedDisasters = false;
+    emit(const MissionState());
+  }
+
   @override
   Future<void> close() async {
     await _stopWatching();

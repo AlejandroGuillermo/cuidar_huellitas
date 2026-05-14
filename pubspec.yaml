@@ -70,6 +70,7 @@ flutter:
 
   assets:
     - assets/images/gato_vectorized.svg
+    - assets/images/perro_vectorized.svg
     - assets/images/gato_vectorized_body.svg
     - assets/images/gato_vectorized_tail.svg
     - assets/images/gato_vectorized_eye_left.svg

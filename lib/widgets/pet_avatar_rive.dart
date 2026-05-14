@@ -26,6 +26,7 @@ class PetAvatarRive extends StatefulWidget {
 class _PetAvatarRiveState extends State<PetAvatarRive>
     with TickerProviderStateMixin {
   static const String _catAssetPath = 'assets/images/gato_vectorized.svg';
+  static const String _dogAssetPath = 'assets/images/perro_vectorized.svg';
   static const String _catBodyAssetPath =
       'assets/images/gato_vectorized_body.svg';
   static const String _catTailAssetPath =
@@ -59,15 +60,19 @@ class _PetAvatarRiveState extends State<PetAvatarRive>
     final normalizedType = widget.tipoMascota.toLowerCase().trim();
     switch (normalizedType) {
       case 'gato':
+      case 'cat':
+        return _catAssetPath;
       case 'perro':
+      case 'dog':
+        return _dogAssetPath;
       default:
         return _catAssetPath;
     }
   }
 
-  bool get _supportsIdleAnimation {
+  bool get _isCat {
     final normalizedType = widget.tipoMascota.toLowerCase().trim();
-    return normalizedType == 'gato' || normalizedType == 'perro';
+    return normalizedType == 'gato' || normalizedType == 'cat';
   }
 
   @override
@@ -123,7 +128,7 @@ class _PetAvatarRiveState extends State<PetAvatarRive>
   }
 
   void _startEyeMove() {
-    if (!mounted || !_supportsIdleAnimation) return;
+    if (!mounted || !_isCat) return;
 
     _currentEyeOffset = _eyeOffset;
     const candidates = <Offset>[
@@ -149,7 +154,7 @@ class _PetAvatarRiveState extends State<PetAvatarRive>
   }
 
   void _startEarTwitch() {
-    if (!mounted || !_supportsIdleAnimation) return;
+    if (!mounted || !_isCat) return;
 
     _currentLeftEarAngle = _leftEarAngle;
     _currentRightEarAngle = _rightEarAngle;
@@ -244,7 +249,7 @@ class _PetAvatarRiveState extends State<PetAvatarRive>
     return SizedBox(
       width: widget.width,
       height: widget.height,
-      child: !_supportsIdleAnimation
+      child: !_isCat
           ? _buildSvgLayer(_assetPath)
           : AnimatedBuilder(
               animation: Listenable.merge([_tailController, _breathController]),

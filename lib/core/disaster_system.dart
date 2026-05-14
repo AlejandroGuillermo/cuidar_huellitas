@@ -543,6 +543,11 @@ class DisasterCubit extends Cubit<DisasterState> {
     _activeMascotaId = null;
   }
 
+  Future<void> reset() async {
+    await _stopWatching();
+    emit(const DisasterState());
+  }
+
   @override
   Future<void> close() async {
     await _stopWatching();
