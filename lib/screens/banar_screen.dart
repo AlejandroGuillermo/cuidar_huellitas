@@ -292,13 +292,15 @@ class _BanarScreenState extends State<BanarScreen> {
   }
 
   void _applySoapDrop(_BathTool tool) {
-    if (tool.label != 'Jabon') return;
+    if (tool.label != 'Jabon' || !_canUseBathTools) return;
     _setDraggingBathTool(false);
     _increaseSoapProgress(3);
   }
 
   void _increaseSoapProgress(double delta) {
-    if (!_petInTub || delta <= 0 || _soapProgress >= 100) return;
+    if (!_petInTub || !_canUseBathTools || delta <= 0 || _soapProgress >= 100) {
+      return;
+    }
     _banarCubit.increaseSoapProgress(delta);
     _movePetInsideTub();
     _maybeTriggerBathEscape();
@@ -310,7 +312,7 @@ class _BanarScreenState extends State<BanarScreen> {
   }
 
   void _scrubPet(double delta) {
-    if (!_petInTub || delta <= 0) return;
+    if (!_petInTub || !_canUseBathTools || delta <= 0) return;
     final result = _banarCubit.scrub(delta);
     if (result.hasWarning) {
       _showBathWarning(result.warning!);
@@ -321,7 +323,7 @@ class _BanarScreenState extends State<BanarScreen> {
   }
 
   void _rinseSoap(double delta) {
-    if (!_petInTub || delta <= 0) return;
+    if (!_petInTub || !_canUseBathTools || delta <= 0) return;
     final result = _banarCubit.rinseSoap(delta);
     if (result.hasWarning) {
       _showBathWarning(result.warning!);
@@ -332,7 +334,9 @@ class _BanarScreenState extends State<BanarScreen> {
   }
 
   Future<void> _dryPet(double delta) async {
-    if (!_petInTub || delta <= 0 || _applyingBathReward) return;
+    if (!_petInTub || !_canUseBathTools || delta <= 0 || _applyingBathReward) {
+      return;
+    }
     final result = _banarCubit.dry(
       delta: delta,
       applyingBathReward: _applyingBathReward,
@@ -762,6 +766,7 @@ class _BanarScreenState extends State<BanarScreen> {
       petSize: petSize,
       canAcceptTool: _canAcceptPetTool,
       onMoveTool: (details) {
+        if (!_canUseBathTools) return;
         final tool = details.data;
         if (tool.label == 'Jabon') {
           _increaseSoapProgress(0.6);
