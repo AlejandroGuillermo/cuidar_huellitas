@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'bath_soap_overlay_widget.dart';
 import '../../../widgets/pet_avatar_rive.dart';
 
 class BathPetInTubWidget<T extends Object> extends StatelessWidget {
@@ -12,6 +13,8 @@ class BathPetInTubWidget<T extends Object> extends StatelessWidget {
   final Duration slideDuration;
   final Offset slideOffset;
   final String tipoMascota;
+  final double soapOverlayProgress;
+  final double pawSoapOverlayProgress;
 
   const BathPetInTubWidget({
     super.key,
@@ -24,6 +27,8 @@ class BathPetInTubWidget<T extends Object> extends StatelessWidget {
     required this.slideDuration,
     required this.slideOffset,
     required this.tipoMascota,
+    required this.soapOverlayProgress,
+    required this.pawSoapOverlayProgress,
   });
 
   @override
@@ -44,10 +49,25 @@ class BathPetInTubWidget<T extends Object> extends StatelessWidget {
               child: AnimatedScale(
                 duration: const Duration(milliseconds: 160),
                 scale: isHoveringTool ? 1.04 : 1.0,
-                child: PetAvatarRive(
-                  tipoMascota: tipoMascota,
-                  width: petSize,
-                  height: petSize,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    RepaintBoundary(
+                      child: PetAvatarRive(
+                        tipoMascota: tipoMascota,
+                        width: petSize,
+                        height: petSize,
+                      ),
+                    ),
+                    if (soapOverlayProgress > 0)
+                      IgnorePointer(
+                        child: BathSoapOverlayWidget(
+                          size: petSize,
+                          progress: soapOverlayProgress,
+                          pawProgress: pawSoapOverlayProgress,
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),

@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../core/app_colors.dart';
 import '../core/app_router.dart';
 
-void mostrarMapaHuella(BuildContext context) {
-  showDialog(
+Future<void> mostrarMapaHuella(BuildContext context) async {
+  final selectedAction = await showDialog<String>(
     context: context,
-    builder: (BuildContext context) {
+    builder: (BuildContext dialogContext) {
       return Dialog(
         backgroundColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -24,10 +25,10 @@ void mostrarMapaHuella(BuildContext context) {
                 ),
               ),
               const SizedBox(height: 24),
-              const SizedBox(
+              SizedBox(
                 width: 300,
                 height: 300,
-                child: PawMapWidget(),
+                child: const PawMapWidget(),
               ),
             ],
           ),
@@ -35,27 +36,33 @@ void mostrarMapaHuella(BuildContext context) {
       );
     },
   );
+
+  if (!context.mounted || selectedAction == null) return;
+
+  switch (selectedAction) {
+    case 'alimentar':
+      context.go(AppRoutes.alimentar);
+      break;
+    case 'jugar':
+      context.go(AppRoutes.jugar);
+      break;
+    case 'curar':
+      context.go(AppRoutes.curar);
+      break;
+    case 'banar':
+      context.go(AppRoutes.banar);
+      break;
+    case 'dormir':
+      context.go(AppRoutes.dormir);
+      break;
+  }
 }
 
 class PawMapWidget extends StatelessWidget {
   const PawMapWidget({super.key});
 
   void _openAction(BuildContext context, String actionId) {
-    Navigator.of(context, rootNavigator: true).pop();
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (actionId == 'alimentar') {
-        appRouter.go(AppRoutes.alimentar);
-      } else if (actionId == 'jugar') {
-        appRouter.go(AppRoutes.jugar);
-      } else if (actionId == 'curar') {
-        appRouter.go(AppRoutes.curar);
-      } else if (actionId == 'banar') {
-        appRouter.go(AppRoutes.banar);
-      } else if (actionId == 'dormir') {
-        appRouter.go(AppRoutes.dormir);
-      }
-    });
+    Navigator.of(context, rootNavigator: true).pop(actionId);
   }
 
   @override

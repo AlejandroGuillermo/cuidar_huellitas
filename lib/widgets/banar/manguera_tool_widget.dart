@@ -58,7 +58,7 @@ class _MangueraToolWidgetState extends State<MangueraToolWidget>
         width: widget.size,
         height: widget.size,
         child: SvgPicture.asset(
-          'assets/images/shower_header_vectorized.svg',
+          'assets/images/banar/shower_header_vectorized.svg',
           fit: BoxFit.contain,
         ),
       ),

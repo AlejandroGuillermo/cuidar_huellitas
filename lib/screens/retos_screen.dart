@@ -35,90 +35,103 @@ class RetosScreen extends StatelessWidget {
 
         return Scaffold(
           backgroundColor: AppColors.fondoPrincipal,
-          body: SafeArea(
-            child: Column(
-              children: [
-                const _TopHeader(
-                  title: 'Retos',
-                  subtitle: 'Cuida a tu mascota y gana monedas',
-                  coins: 245,
-                ),
-                Expanded(
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                    children: [
-                      _SectionHeader(
-                        title: 'Misiones activas',
-                        trailing: '${activeMissions.length} pendientes',
-                      ),
-                      const SizedBox(height: 10),
-                      if (missionState.isLoading && activeMissions.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 18),
-                          child: Center(
-                            child: CircularProgressIndicator(
-                              color: AppColors.azulPrincipal,
-                            ),
-                          ),
-                        )
-                      else if (activeMissions.isEmpty)
-                        const _EmptyListCard(
-                          title: 'No hay misiones activas',
-                          desc:
-                              'Cuando tu mascota necesite algo, apareceran aqui.',
-                        )
-                      else
-                        ...activeMissions.map(
-                          (mission) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: _ActiveMissionCard(
-                              emoji: mission.emoji,
-                              title: mission.title,
-                              desc: mission.desc,
-                              progress: mission.progress,
-                              reward: mission.reward,
-                              urgent: mission.urgent,
-                              action: 'Ir a completar',
-                              onPressed: () => _openRouteByLocation(
-                                context,
-                                mission.location,
-                              ),
-                            ),
-                          ),
-                        ),
-                      const SizedBox(height: 8),
-                      _SectionHeader(
-                        title: 'Desastres pendientes',
-                        trailing: '${pendingDisasters.length} por limpiar',
-                      ),
-                      const SizedBox(height: 10),
-                      if (pendingDisasters.isEmpty)
-                        const _EmptyListCard(
-                          title: 'No hay desastres pendientes',
-                          desc: 'Todo limpio por ahora. Buen trabajo.',
-                        )
-                      else
-                        ...pendingDisasters.map(
-                          (disaster) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: _RandomMissionCard(
-                              emoji: disaster.emoji,
-                              title: disaster.title,
-                              desc: disaster.desc,
-                              progress: 0.0,
-                              reward: disaster.reward,
-                              wayToWin: disaster.wayToWin,
-                              onPressed: () => _openRouteByLocation(
-                                context,
-                                disaster.location,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
+          body: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onHorizontalDragEnd: (details) {
+              final velocity = details.primaryVelocity;
+              if (velocity == null) return;
+              if (velocity < -400) {
+                context.goNamed(
+                  'curar',
+                  extra: 'retos',
+                );
+              }
+            },
+            child: SafeArea(
+              child: Column(
+                children: [
+                  const _TopHeader(
+                    title: 'Retos',
+                    subtitle: 'Cuida a tu mascota y gana monedas',
+                    coins: 245,
                   ),
-                ),
-              ],
+                  Expanded(
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                      children: [
+                        _SectionHeader(
+                          title: 'Misiones activas',
+                          trailing: '${activeMissions.length} pendientes',
+                        ),
+                        const SizedBox(height: 10),
+                        if (missionState.isLoading && activeMissions.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 18),
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                color: AppColors.azulPrincipal,
+                              ),
+                            ),
+                          )
+                        else if (activeMissions.isEmpty)
+                          const _EmptyListCard(
+                            title: 'No hay misiones activas',
+                            desc:
+                                'Cuando tu mascota necesite algo, apareceran aqui.',
+                          )
+                        else
+                          ...activeMissions.map(
+                            (mission) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _ActiveMissionCard(
+                                emoji: mission.emoji,
+                                title: mission.title,
+                                desc: mission.desc,
+                                progress: mission.progress,
+                                reward: mission.reward,
+                                urgent: mission.urgent,
+                                action: 'Ir a completar',
+                                onPressed: () => _openRouteByLocation(
+                                  context,
+                                  mission.location,
+                                ),
+                              ),
+                            ),
+                          ),
+                        const SizedBox(height: 8),
+                        _SectionHeader(
+                          title: 'Desastres pendientes',
+                          trailing: '${pendingDisasters.length} por limpiar',
+                        ),
+                        const SizedBox(height: 10),
+                        if (pendingDisasters.isEmpty)
+                          const _EmptyListCard(
+                            title: 'No hay desastres pendientes',
+                            desc: 'Todo limpio por ahora. Buen trabajo.',
+                          )
+                        else
+                          ...pendingDisasters.map(
+                            (disaster) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _RandomMissionCard(
+                                emoji: disaster.emoji,
+                                title: disaster.title,
+                                desc: disaster.desc,
+                                progress: 0.0,
+                                reward: disaster.reward,
+                                wayToWin: disaster.wayToWin,
+                                onPressed: () => _openRouteByLocation(
+                                  context,
+                                  disaster.location,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );

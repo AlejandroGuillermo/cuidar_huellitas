@@ -6,6 +6,7 @@ class AppColors {
   static const Color verdePrincipal = Color(0xFF8AE670);
   static const Color verdeClaro = Color(0xFFA3FF88);
   static const Color verdeFondo = Color(0xFFF0FFF0);
+  static const Color verdeVeterinario = Color(0xFFEDF7ED);
 
   // ── Azul / Morado ──────────────────────────────────────
   static const Color azulPrincipal = Color(0xFF708BE6);

@@ -91,7 +91,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Future<void> _openProfileSheet() async {
     final petCubit = context.read<PetCubit>();
-    await showGeneralDialog<void>(
+    final result = await showGeneralDialog<_ProfileSheetResult>(
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Perfil',
@@ -143,6 +143,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         );
       },
     );
+    if (!mounted) return;
+    if (result == _ProfileSheetResult.adopt) {
+      final adopted = await context.push<bool>(
+        '${AppRoutes.adopcion}?fromHome=true',
+      );
+      if (!mounted) return;
+      if (adopted == true) {
+        await petCubit.cargarMascota();
+        if (!mounted) return;
+        await _syncWorldEntry();
+      }
+    }
   }
 
   @override
@@ -163,7 +175,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       },
       builder: (context, petState) {
         final mascota = petState.mascota;
-        if (petState.isLoading || mascota == null) {
+        if (petState.isLoading) {
           return const Scaffold(
             backgroundColor: Colors.white,
             body: Center(
@@ -174,6 +186,30 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   SizedBox(height: 16),
                   Text(
                     'Despertando mascota...',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
+        if (mascota == null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            context.go(AppRoutes.adopcion);
+          });
+
+          return const Scaffold(
+            backgroundColor: Colors.white,
+            body: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(color: AppColors.azulPrincipal),
+                  SizedBox(height: 16),
+                  Text(
+                    'Redirigiendo a adopcion...',
                     style: TextStyle(color: Colors.grey),
                   ),
                 ],
@@ -210,7 +246,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 if (velocity < 0) {
                   context.push(AppRoutes.dormir);
                 } else if (velocity > 0) {
-                  context.push(AppRoutes.alimentar);
+                  context.goNamed(
+                    'alimentar',
+                    extra: 'home',
+                  );
                 }
               },
               child: Stack(
@@ -523,6 +562,8 @@ class _WorldSummaryCard extends StatelessWidget {
 
 enum _ProfileSheetTab { profile, pets }
 
+enum _ProfileSheetResult { adopt }
+
 class _ProfilePetsSheet extends StatefulWidget {
   const _ProfilePetsSheet({
     required this.activePet,
@@ -539,11 +580,18 @@ class _ProfilePetsSheet extends StatefulWidget {
 class _ProfilePetsSheetState extends State<_ProfilePetsSheet> {
   final _auth = FirebaseAuth.instance;
   final _firestore = FirebaseFirestore.instance;
+  static const List<String> _petSubcollectionsToDelete = <String>[
+    'misiones_activas',
+    'desastres_pendientes',
+    'patron_rutina',
+    'progreso',
+  ];
 
   late _ProfileSheetTab _tab;
   late final Future<UsuarioModel?> _userFuture;
   bool _switchingPet = false;
   String? _switchingPetId;
+  bool _normalizingActivePets = false;
 
   @override
   void initState() {
@@ -601,6 +649,129 @@ class _ProfilePetsSheetState extends State<_ProfilePetsSheet> {
           _switchingPetId = null;
         });
       }
+    }
+  }
+
+  Future<void> _normalizeActivePets(
+    List<MascotaModel> pets, {
+    String? preferredPetId,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null || pets.isEmpty || _normalizingActivePets) return;
+
+    final activePets = pets.where((pet) => pet.activa).toList();
+    if (activePets.length <= 1) return;
+
+    _normalizingActivePets = true;
+    try {
+      final keepPetId =
+          preferredPetId ??
+          _switchingPetId ??
+          widget.activePet?.idMascota ??
+          activePets.first.idMascota;
+
+      final petsRef = _firestore
+          .collection('usuarios')
+          .doc(user.uid)
+          .collection('mascotas');
+      final batch = _firestore.batch();
+
+      for (final pet in pets) {
+        batch.update(petsRef.doc(pet.idMascota), {
+          'activa': pet.idMascota == keepPetId,
+        });
+      }
+
+      await batch.commit();
+      await widget.onPetChanged();
+    } catch (_) {
+      // If normalization fails, keep the UI usable with an effective active id.
+    } finally {
+      _normalizingActivePets = false;
+    }
+  }
+
+  Future<void> _deletePet(MascotaModel pet, int totalPets) async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    if (pet.activa) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No puedes eliminar la mascota activa. Cambia a otra primero.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (totalPets <= 1) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No puedes eliminar tu unica mascota.')),
+      );
+      return;
+    }
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          title: const Text('Eliminar mascota'),
+          content: Text(
+            'Vas a eliminar a ${pet.nombreMascota}. Esta accion no se puede deshacer. Deseas continuar?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.rosa,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Eliminar'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldDelete != true) return;
+
+    try {
+      final petRef = _firestore
+          .collection('usuarios')
+          .doc(user.uid)
+          .collection('mascotas')
+          .doc(pet.idMascota);
+
+      for (final name in _petSubcollectionsToDelete) {
+        final subcollection = await petRef.collection(name).get();
+        if (subcollection.docs.isEmpty) continue;
+        final batch = _firestore.batch();
+        for (final doc in subcollection.docs) {
+          batch.delete(doc.reference);
+        }
+        await batch.commit();
+      }
+
+      await petRef.delete();
+      await widget.onPetChanged();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${pet.nombreMascota} fue eliminado.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo eliminar la mascota: $error')),
+      );
     }
   }
 
@@ -678,8 +849,7 @@ class _ProfilePetsSheetState extends State<_ProfilePetsSheet> {
     );
 
     if (shouldAdopt != true || !mounted) return;
-    Navigator.of(context).pop();
-    context.push(AppRoutes.adopcion);
+    Navigator.of(context).pop(_ProfileSheetResult.adopt);
   }
 
   void _openAchievements() {
@@ -799,10 +969,34 @@ class _ProfilePetsSheetState extends State<_ProfilePetsSheet> {
                                   .map(MascotaModel.fromFirestore)
                                   .toList() ??
                               const <MascotaModel>[];
+                          final activePets = pets
+                              .where((pet) => pet.activa)
+                              .toList();
+                          final effectiveActiveId = activePets.isNotEmpty
+                              ? (_switchingPetId != null &&
+                                        pets.any(
+                                          (pet) =>
+                                              pet.idMascota ==
+                                                  _switchingPetId &&
+                                              pet.activa,
+                                        )
+                                    ? _switchingPetId
+                                    : activePets.first.idMascota)
+                              : widget.activePet?.idMascota;
+
+                          if (activePets.length > 1) {
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (!mounted) return;
+                              _normalizeActivePets(
+                                pets,
+                                preferredPetId: effectiveActiveId,
+                              );
+                            });
+                          }
                           final activePet = pets
                               .cast<MascotaModel?>()
                               .firstWhere(
-                                (pet) => pet?.activa == true,
+                                (pet) => pet?.idMascota == effectiveActiveId,
                                 orElse: () => widget.activePet,
                               );
 
@@ -843,9 +1037,11 @@ class _ProfilePetsSheetState extends State<_ProfilePetsSheet> {
                                 : _PetsTabView(
                                     key: const ValueKey('pets'),
                                     pets: pets,
+                                    activePetId: effectiveActiveId,
                                     switchingPetId: _switchingPetId,
                                     onAdopt: _openAdoption,
                                     onSwitchPet: _switchActivePet,
+                                    onDeletePet: _deletePet,
                                   ),
                           );
                         },
@@ -995,6 +1191,42 @@ class _ProfileTabView extends StatelessWidget {
                       value: pet.nivelAfecto,
                       color: AppColors.nivelAfecto,
                     ),
+                    const SizedBox(height: 18),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.65),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Column(
+                        children: [
+                          const Text(
+                            'Personalidad',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 11,
+                              letterSpacing: 1,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textoSecundario,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            pet.rasgo,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.textoPrincipal,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -1110,18 +1342,35 @@ class _PetsTabView extends StatelessWidget {
   const _PetsTabView({
     super.key,
     required this.pets,
+    required this.activePetId,
     required this.switchingPetId,
     required this.onAdopt,
     required this.onSwitchPet,
+    required this.onDeletePet,
   });
 
   final List<MascotaModel> pets;
+  final String? activePetId;
   final String? switchingPetId;
   final VoidCallback onAdopt;
   final Future<void> Function(MascotaModel pet) onSwitchPet;
+  final Future<void> Function(MascotaModel pet, int totalPets) onDeletePet;
 
   @override
   Widget build(BuildContext context) {
+    void handlePetTap(MascotaModel pet) {
+      final isPetActive = pet.idMascota == activePetId;
+      if (isPetActive) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${pet.nombreMascota} ya es tu mascota activa.'),
+          ),
+        );
+        return;
+      }
+      onSwitchPet(pet);
+    }
+
     return ListView(
       padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
       children: [
@@ -1136,16 +1385,55 @@ class _PetsTabView extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 14),
-        ...pets.map(
-          (pet) => Padding(
+        ...pets.map((pet) {
+          final isPetActive = pet.idMascota == activePetId;
+          return Padding(
             padding: const EdgeInsets.only(bottom: 12),
-            child: _PetCard(
-              pet: pet,
-              isSwitching: switchingPetId == pet.idMascota,
-              onSwitch: pet.activa ? null : () => onSwitchPet(pet),
+            child: Dismissible(
+              key: ValueKey('pet-${pet.idMascota}'),
+              direction: isPetActive
+                  ? DismissDirection.none
+                  : DismissDirection.endToStart,
+              confirmDismiss: (_) async {
+                await onDeletePet(pet, pets.length);
+                return false;
+              },
+              background: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                decoration: BoxDecoration(
+                  color: AppColors.rosa.withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                alignment: Alignment.centerRight,
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.delete_outline_rounded,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      'Eliminar',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              child: _PetCard(
+                pet: pet,
+                isActive: isPetActive,
+                isSwitching: switchingPetId == pet.idMascota,
+                onTap: () => handlePetTap(pet),
+                onSwitch: isPetActive ? null : () => handlePetTap(pet),
+              ),
             ),
-          ),
-        ),
+          );
+        }),
         _DashedActionCard(
           color: AppColors.azulPrincipal.withValues(alpha: 0.5),
           onTap: onAdopt,
@@ -1339,17 +1627,20 @@ class _MenuRow extends StatelessWidget {
 class _PetCard extends StatelessWidget {
   const _PetCard({
     required this.pet,
+    required this.isActive,
     required this.isSwitching,
+    required this.onTap,
     required this.onSwitch,
   });
 
   final MascotaModel pet;
+  final bool isActive;
   final bool isSwitching;
+  final VoidCallback onTap;
   final VoidCallback? onSwitch;
 
   @override
   Widget build(BuildContext context) {
-    final isActive = pet.activa;
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
@@ -1360,175 +1651,191 @@ class _PetCard extends StatelessWidget {
         final badgeFontSize = (width * 0.036).clamp(10.0, 11.5);
         final percentFontSize = (width * 0.042).clamp(12.0, 14.0);
 
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: isActive ? const Color(0xFFF3FFF0) : Colors.grey.shade50,
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: isSwitching ? null : onTap,
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(
-              color: isActive ? AppColors.verdePrincipal : Colors.transparent,
-              width: 2,
-            ),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Column(
-                children: [
-                  Container(
-                    width: 64,
-                    height: 64,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(18),
-                      child: PetAvatarRive(
-                        tipoMascota: pet.tipoMascota,
-                        width: 48,
-                        height: 48,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    pet.tipoMascota.toLowerCase() == 'gato' ||
-                            pet.tipoMascota.toLowerCase() == 'cat'
-                        ? 'Gato'
-                        : 'Perro',
-                    style: TextStyle(
-                      color: AppColors.textoSecundario,
-                      fontWeight: FontWeight.w600,
-                      fontSize: typeFontSize,
-                    ),
-                  ),
-                ],
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: isActive ? const Color(0xFFF3FFF0) : Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: isActive
+                      ? AppColors.verdePrincipal
+                      : Colors.transparent,
+                  width: 2,
+                ),
               ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Personalidad',
-                                style: TextStyle(
-                                  fontSize: labelFontSize,
-                                  letterSpacing: 0.8,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.textoSecundario,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                pet.rasgo,
-                                style: TextStyle(
-                                  fontSize: traitFontSize,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.textoPrincipal,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                softWrap: true,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                pet.nombreMascota,
-                                style: TextStyle(
-                                  fontSize: nameFontSize,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.textoSecundario,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Column(
+                    children: [
+                      Container(
+                        width: 64,
+                        height: 64,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(18),
+                          child: PetAvatarRive(
+                            tipoMascota: pet.tipoMascota,
+                            width: 48,
+                            height: 48,
                           ),
                         ),
-                        if (isActive) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 5,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.verdePrincipal,
-                              borderRadius: BorderRadius.circular(99),
-                            ),
-                            child: Text(
-                              'Activa ✓',
-                              style: TextStyle(
-                                fontSize: badgeFontSize,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.textoPrincipal,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        pet.tipoMascota.toLowerCase() == 'gato' ||
+                                pet.tipoMascota.toLowerCase() == 'cat'
+                            ? 'Gato'
+                            : 'Perro',
+                        style: TextStyle(
+                          color: AppColors.textoSecundario,
+                          fontWeight: FontWeight.w600,
+                          fontSize: typeFontSize,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Personalidad',
+                                    style: TextStyle(
+                                      fontSize: labelFontSize,
+                                      letterSpacing: 0.8,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.textoSecundario,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    pet.rasgo,
+                                    style: TextStyle(
+                                      fontSize: traitFontSize,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.textoPrincipal,
+                                    ),
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    softWrap: true,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    pet.nombreMascota,
+                                    style: TextStyle(
+                                      fontSize: nameFontSize,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.textoSecundario,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
                               ),
+                            ),
+                            if (isActive) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.verdePrincipal,
+                                  borderRadius: BorderRadius.circular(99),
+                                ),
+                                child: Text(
+                                  'Activa ✓',
+                                  style: TextStyle(
+                                    fontSize: badgeFontSize,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppColors.textoPrincipal,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.favorite,
+                              color: AppColors.rosa,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: _MiniHealthBar(
+                                value: pet.nivelSalud,
+                                color: AppColors.rosa,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '${pet.nivelSalud}%',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textoPrincipal,
+                                fontSize: percentFontSize,
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (!isActive) ...[
+                          const SizedBox(height: 12),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: FilledButton(
+                              onPressed: isSwitching ? null : onSwitch,
+                              style: FilledButton.styleFrom(
+                                backgroundColor: AppColors.azulPrincipal,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 18,
+                                  vertical: 12,
+                                ),
+                              ),
+                              child: isSwitching
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Text('Cambiar'),
                             ),
                           ),
                         ],
                       ],
                     ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.favorite,
-                          color: AppColors.rosa,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _MiniHealthBar(
-                            value: pet.nivelSalud,
-                            color: AppColors.rosa,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${pet.nivelSalud}%',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textoPrincipal,
-                            fontSize: percentFontSize,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              if (!isActive) ...[
-                const SizedBox(width: 12),
-                FilledButton(
-                  onPressed: isSwitching ? null : onSwitch,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.azulPrincipal,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
                   ),
-                  child: isSwitching
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Text('Cambiar'),
-                ),
-              ],
-            ],
+                ],
+              ),
+            ),
           ),
         );
       },

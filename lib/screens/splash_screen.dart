@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/app_colors.dart';
+import '../core/app_router.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -87,13 +89,31 @@ class _SplashScreenState extends State<SplashScreen>
       _textController.forward();
     });
 
-    _navTimer = Timer(const Duration(milliseconds: 2800), _handleNavigation);
+    _navTimer = Timer(const Duration(milliseconds: 2800), () {
+      _handleNavigation();
+    });
   }
 
-  void _handleNavigation() {
+  Future<void> _handleNavigation() async {
     if (!mounted) return;
     final user = FirebaseAuth.instance.currentUser;
-    context.go(user == null ? '/login' : '/home');
+    if (user == null) {
+      context.go(AppRoutes.login);
+      return;
+    }
+
+    final activePet = await FirebaseFirestore.instance
+        .collection('usuarios')
+        .doc(user.uid)
+        .collection('mascotas')
+        .where('activa', isEqualTo: true)
+        .limit(1)
+        .get();
+
+    if (!mounted) return;
+    context.go(
+      activePet.docs.isEmpty ? AppRoutes.adopcion : AppRoutes.home,
+    );
   }
 
   @override

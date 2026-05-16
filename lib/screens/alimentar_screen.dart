@@ -504,9 +504,19 @@ class _AlimentarScreenState extends State<AlimentarScreen>
             final velocityX = details.primaryVelocity ?? 0.0;
             final isIntentionalLeftSwipe =
                 _swipeDx <= -minDistance && velocityX <= -minVelocity;
+            final isIntentionalRightSwipe =
+                _swipeDx >= minDistance && velocityX >= minVelocity;
 
             if (isIntentionalLeftSwipe) {
-              context.go('/home');
+              context.goNamed(
+                'home',
+                extra: 'alimentar',
+              );
+            } else if (isIntentionalRightSwipe) {
+              context.goNamed(
+                'curar',
+                extra: 'alimentar',
+              );
             }
             _swipeDx = 0.0;
           },

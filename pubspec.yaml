@@ -80,7 +80,7 @@ flutter:
     - assets/images/Corazon_Huellitas.png
     - assets/images/Celular.png
     - assets/images/Logo.png
-    - assets/images/shower_header_vectorized.svg
+    - assets/images/banar/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

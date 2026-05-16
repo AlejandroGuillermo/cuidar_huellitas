@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 
 import '../application/cubits/pet_world_cubit.dart';
 import '../core/app_colors.dart';
-import '../core/app_router.dart';
 import '../core/personality_config.dart';
 import '../cubit/pet_cubit.dart';
 import '../domain/enums/pet_activity.dart';
@@ -229,7 +228,7 @@ class _BanarScreenState extends State<BanarScreen> {
   }
 
   Duration _randomBathCalmDuration() {
-    final seconds = 3 + _random.nextInt(3);
+    final seconds = 5 + _random.nextInt(3);
     return Duration(seconds: seconds);
   }
 
@@ -384,20 +383,21 @@ class _BanarScreenState extends State<BanarScreen> {
           return GestureDetector(
             onHorizontalDragUpdate: (details) {
               if (_draggingBathTool || _petInTub) return;
-              if (details.delta.dx > 0) {
-                _banarCubit.setDragOffset(
-                  (_dragOffset + details.delta.dx).clamp(
-                    0.0,
-                    viewportSize.width,
-                  ),
-                );
-              }
+              _banarCubit.setDragOffset(
+                (_dragOffset + details.delta.dx).clamp(
+                  -viewportSize.width,
+                  viewportSize.width,
+                ),
+              );
             },
             onHorizontalDragEnd: (details) {
               if (_draggingBathTool || _petInTub) return;
-              if (_dragOffset > viewportSize.width * 0.3 ||
-                  (details.primaryVelocity ?? 0) > 500) {
-                context.go(AppRoutes.dormir);
+              final velocity = details.primaryVelocity ?? 0;
+              if (_dragOffset > viewportSize.width * 0.3 || velocity > 500) {
+                context.goNamed('dormir', extra: 'banar');
+              } else if (_dragOffset < -viewportSize.width * 0.3 ||
+                  velocity < -500) {
+                context.goNamed('jugar', extra: 'banar');
               } else {
                 _banarCubit.setDragOffset(0);
               }
@@ -758,7 +758,7 @@ class _BanarScreenState extends State<BanarScreen> {
   }
 
   Widget _buildPetInTub(double tubWidth) {
-    final petSize = (tubWidth * 0.98).clamp(164.0, 220.0);
+    final petSize = (tubWidth * 0.50).clamp(92.0, 118.0);
     final isHoveringTool = _activeDraggedToolLabel == 'Jabon' ||
         _activeDraggedToolLabel == 'Estropajo';
 
@@ -784,7 +784,21 @@ class _BanarScreenState extends State<BanarScreen> {
       slideDuration: Duration(milliseconds: _isBathDifficult ? 380 : 220),
       slideOffset: Offset(_petTubOffsetX, _petTubOffsetY),
       tipoMascota: _tipoMascotaActual(),
+      soapOverlayProgress: _soapOverlayProgress,
+      pawSoapOverlayProgress: _pawSoapOverlayProgress,
     );
+  }
+
+  double get _soapOverlayProgress {
+    final normalized = (_soapProgressRaw.clamp(0.0, 100.0) / 100.0);
+    const steps = 20.0;
+    return (normalized * steps).floor() / steps;
+  }
+
+  double get _pawSoapOverlayProgress {
+    final normalized = (_soapProgressRaw.clamp(0.0, 100.0) / 100.0);
+    const steps = 20.0;
+    return (normalized * steps).floor() / steps;
   }
 
   Widget _buildTubLeg(double tubWidth) {
@@ -828,7 +842,7 @@ class _BanarScreenState extends State<BanarScreen> {
   }
 
   Widget _buildPetOnFloor(Size size) {
-    final petSize = (size.width * 0.38).clamp(130.0, 190.0);
+    final petSize = (size.width * 0.30).clamp(112.0, 154.0);
     return BathPetOnFloorWidget(
       petSize: petSize,
       tipoMascota: _tipoMascotaActual(),

@@ -89,119 +89,147 @@ final appRouter = GoRouter(
         GoRoute(
           path: AppRoutes.home,
           name: 'home',
-          builder: (context, state) => const HomeScreen(),
-          routes: [
-            GoRoute(
-              path: 'mascota/ar',
-              name: 'ar',
-              builder: (context, state) => const ArScreen(),
-            ),
-            GoRoute(
-              path: 'alimentar',
-              name: 'alimentar',
-              // Esta ruta se activa al pulsar el botón de alimentar en HomeScreen.
-              pageBuilder: (context, state) {
-                return CustomTransitionPage(
-                  key: state.pageKey,
-                  child: const AlimentarScreen(),
-                  transitionsBuilder:
-                      (context, animation, secondaryAnimation, child) {
-                        // Animación de deslizamiento desde la derecha
-                        const begin = Offset(
-                          -1.0,
-                          0.0,
-                        ); // Empieza fuera de la pantalla a la derecha
-                        const end = Offset.zero; // Termina en el centro
-                        const curve = Curves.easeInOut;
+          pageBuilder: (context, state) {
+            final from = state.extra as String?;
+            final begin = from == 'alimentar'
+                ? const Offset(1.0, 0.0)
+                : const Offset(1.0, 0.0);
 
-                        var tween = Tween(
-                          begin: begin,
-                          end: end,
-                        ).chain(CurveTween(curve: curve));
-                        var offsetAnimation = animation.drive(tween);
+            return CustomTransitionPage(
+              key: state.pageKey,
+              child: const HomeScreen(),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) {
+                    const end = Offset.zero;
+                    const curve = Curves.easeInOut;
 
-                        return SlideTransition(
-                          position: offsetAnimation,
-                          child: child,
-                        );
-                      },
-                );
-              },
-            ),
-            GoRoute(
-              path: 'curar',
-              name: 'curar',
-              pageBuilder: (context, state) {
-                return CustomTransitionPage(
-                  key: state.pageKey,
-                  child: const CurarScreen(),
-                  transitionsBuilder:
-                      (context, animation, secondaryAnimation, child) {
-                        const begin = Offset(1.0, 0.0);
-                        const end = Offset.zero;
-                        const curve = Curves.easeInOut;
-                        final tween = Tween(
-                          begin: begin,
-                          end: end,
-                        ).chain(CurveTween(curve: curve));
-                        return SlideTransition(
-                          position: animation.drive(tween),
-                          child: child,
-                        );
-                      },
-                );
-              },
-            ),
-            GoRoute(
-              path: 'dormir',
-              name: 'dormir',
-              pageBuilder: (context, state) {
-                return CustomTransitionPage(
-                  key: state.pageKey,
-                  child: const DormirScreen(),
-                  transitionsBuilder:
-                      (context, animation, secondaryAnimation, child) {
-                        // La deslizamos desde la izquierda para variar, o desde donde quieras
-                        const begin = Offset(1.0, 0.0);
-                        const end = Offset.zero;
-                        const curve = Curves.easeInOut;
-                        var tween = Tween(
-                          begin: begin,
-                          end: end,
-                        ).chain(CurveTween(curve: curve));
-                        return SlideTransition(
-                          position: animation.drive(tween),
-                          child: child,
-                        );
-                      },
-                );
-              },
-            ),
-            GoRoute(
-              path: 'banar',
-              name: 'banar',
-              pageBuilder: (context, state) {
-                return CustomTransitionPage(
-                  key: state.pageKey,
-                  child: const BanarScreen(),
-                  transitionsBuilder:
-                      (context, animation, secondaryAnimation, child) {
-                        const begin = Offset(1.0, 0.0);
-                        const end = Offset.zero;
-                        const curve = Curves.easeInOut;
-                        final tween = Tween(
-                          begin: begin,
-                          end: end,
-                        ).chain(CurveTween(curve: curve));
-                        return SlideTransition(
-                          position: animation.drive(tween),
-                          child: child,
-                        );
-                      },
-                );
-              },
-            ),
-          ],
+                    final tween = Tween(
+                      begin: begin,
+                      end: end,
+                    ).chain(CurveTween(curve: curve));
+
+                    return SlideTransition(
+                      position: animation.drive(tween),
+                      child: child,
+                    );
+                  },
+            );
+          },
+        ),
+        GoRoute(
+          path: AppRoutes.ar,
+          name: 'ar',
+          builder: (context, state) => const ArScreen(),
+        ),
+        GoRoute(
+          path: AppRoutes.alimentar,
+          name: 'alimentar',
+          pageBuilder: (context, state) {
+            final from = state.extra as String?;
+            final begin = from == 'home'
+                ? const Offset(-1.0, 0.0)
+                : const Offset(1.0, 0.0);
+
+            return CustomTransitionPage(
+              key: state.pageKey,
+              child: const AlimentarScreen(),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) {
+                    const end = Offset.zero;
+                    const curve = Curves.easeInOut;
+
+                    final tween = Tween(
+                      begin: begin,
+                      end: end,
+                    ).chain(CurveTween(curve: curve));
+
+                    return SlideTransition(
+                      position: animation.drive(tween),
+                      child: child,
+                    );
+                  },
+            );
+          },
+        ),
+        GoRoute(
+          path: AppRoutes.curar,
+          name: 'curar',
+          pageBuilder: (context, state) {
+            final from = state.extra as String?;
+            final begin = from == 'alimentar'
+                ? const Offset(-1.0, 0.0)
+                : const Offset(1.0, 0.0);
+
+            return CustomTransitionPage(
+              key: state.pageKey,
+              child: const CurarScreen(),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) {
+                    const end = Offset.zero;
+                    const curve = Curves.easeInOut;
+                    final tween = Tween(
+                      begin: begin,
+                      end: end,
+                    ).chain(CurveTween(curve: curve));
+                    return SlideTransition(
+                      position: animation.drive(tween),
+                      child: child,
+                    );
+                  },
+            );
+          },
+        ),
+        GoRoute(
+          path: AppRoutes.dormir,
+          name: 'dormir',
+          pageBuilder: (context, state) {
+            final from = state.extra as String?;
+            final begin = from == 'banar'
+                ? const Offset(-1.0, 0.0)
+                : const Offset(1.0, 0.0);
+
+            return CustomTransitionPage(
+              key: state.pageKey,
+              child: const DormirScreen(),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) {
+                    const end = Offset.zero;
+                    const curve = Curves.easeInOut;
+                    final tween = Tween(
+                      begin: begin,
+                      end: end,
+                    ).chain(CurveTween(curve: curve));
+                    return SlideTransition(
+                      position: animation.drive(tween),
+                      child: child,
+                    );
+                  },
+            );
+          },
+        ),
+        GoRoute(
+          path: AppRoutes.banar,
+          name: 'banar',
+          pageBuilder: (context, state) {
+            return CustomTransitionPage(
+              key: state.pageKey,
+              child: const BanarScreen(),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) {
+                    const begin = Offset(1.0, 0.0);
+                    const end = Offset.zero;
+                    const curve = Curves.easeInOut;
+                    final tween = Tween(
+                      begin: begin,
+                      end: end,
+                    ).chain(CurveTween(curve: curve));
+                    return SlideTransition(
+                      position: animation.drive(tween),
+                      child: child,
+                    );
+                  },
+            );
+          },
         ),
         GoRoute(
           path: AppRoutes.tienda,
@@ -216,7 +244,30 @@ final appRouter = GoRouter(
         GoRoute(
           path: AppRoutes.jugar,
           name: 'jugar',
-          builder: (context, state) => const JugarScreen(),
+          pageBuilder: (context, state) {
+            final from = state.extra as String?;
+            final begin = from == 'banar'
+                ? const Offset(1.0, 0.0)
+                : const Offset(1.0, 0.0);
+
+            return CustomTransitionPage(
+              key: state.pageKey,
+              child: const JugarScreen(),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) {
+                    const end = Offset.zero;
+                    const curve = Curves.easeInOut;
+                    final tween = Tween(
+                      begin: begin,
+                      end: end,
+                    ).chain(CurveTween(curve: curve));
+                    return SlideTransition(
+                      position: animation.drive(tween),
+                      child: child,
+                    );
+                  },
+            );
+          },
         ),
         GoRoute(
           path: AppRoutes.logros,

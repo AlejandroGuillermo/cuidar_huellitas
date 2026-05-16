@@ -85,7 +85,10 @@ class _LoginScreenState extends State<LoginScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Sesion iniciada')));
-      context.go(AppRoutes.home);
+      final nextRoute = petCubit.state.mascota == null
+          ? AppRoutes.adopcion
+          : AppRoutes.home;
+      context.go(nextRoute);
     } on FirebaseAuthException catch (e) {
       String mensaje = 'No pudimos iniciar sesion';
 

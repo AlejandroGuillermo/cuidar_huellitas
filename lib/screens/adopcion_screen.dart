@@ -33,6 +33,7 @@ class _AdopcionScreenState extends State<AdopcionScreen>
   String _personalidadSeleccionada = opcionesPersonalidadAdopcion.first.nombre;
   String _nombreActual = '';
   bool _guardando = false;
+  bool _mostrarCelebracion = false;
 
   OpcionMascotaAdopcion get _mascotaSeleccionada => opcionesMascotaAdopcion
       .firstWhere((opcion) => opcion.id == _tipoSeleccionado);
@@ -48,6 +49,9 @@ class _AdopcionScreenState extends State<AdopcionScreen>
     'resumen': _opcionPersonalidadSeleccionada.resumen,
     'comportamientos': _opcionPersonalidadSeleccionada.comportamientos,
   };
+
+  bool get _openedFromHome =>
+      GoRouterState.of(context).uri.queryParameters['fromHome'] == 'true';
 
   @override
   void initState() {
@@ -262,10 +266,112 @@ class _AdopcionScreenState extends State<AdopcionScreen>
               estaCargando: _guardando,
               alPresionar: _adoptar,
             ),
+            if (_mostrarCelebracion)
+              Positioned.fill(
+                child: ColoredBox(
+                  color: Colors.black.withValues(alpha: 0.18),
+                  child: Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: Container(
+                          width: double.infinity,
+                          constraints: const BoxConstraints(maxWidth: 360),
+                          padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(24),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.12),
+                                blurRadius: 26,
+                                offset: const Offset(0, 14),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: const [
+                                  Icon(
+                                    Icons.celebration_rounded,
+                                    color: AppColors.azulPrincipal,
+                                    size: 24,
+                                  ),
+                                  SizedBox(width: 10),
+                                  Flexible(
+                                    child: Text(
+                                      'Felicidades',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 18,
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(width: 10),
+                                  Icon(
+                                    Icons.celebration_rounded,
+                                    color: AppColors.azulPrincipal,
+                                    size: 24,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 18),
+                              Text(
+                                'Adoptaste a $_nombreActual.\n'
+                                'Es un $_tipoSeleccionado $_personalidadSeleccionada.\n\n'
+                                '${_opcionPersonalidadSeleccionada.resumen}',
+                                style: const TextStyle(
+                                  color: AppColors.textoPrincipal,
+                                  fontSize: 15,
+                                  height: 1.45,
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: AppColors.azulPrincipal,
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 22,
+                                      vertical: 12,
+                                    ),
+                                  ),
+                                  onPressed: _irAHomeTrasAdopcion,
+                                  child: const Text('Vamos'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
     );
+  }
+
+  void _irAHomeTrasAdopcion() {
+    FocusScope.of(context).unfocus();
+    if (_openedFromHome) {
+      Navigator.of(context).pop(true);
+      return;
+    }
+    appRouter.go(AppRoutes.home);
   }
 
   Future<void> _adoptar() async {
@@ -278,11 +384,13 @@ class _AdopcionScreenState extends State<AdopcionScreen>
         throw Exception('No hay un usuario con sesion iniciada');
       }
 
-      final referenciaMascota = FirebaseFirestore.instance
+      FocusScope.of(context).unfocus();
+
+      final mascotasRef = FirebaseFirestore.instance
           .collection('usuarios')
           .doc(userId)
-          .collection('mascotas')
-          .doc();
+          .collection('mascotas');
+      final referenciaMascota = mascotasRef.doc();
 
       final mascota = MascotaModel(
         idMascota: referenciaMascota.id,
@@ -292,40 +400,19 @@ class _AdopcionScreenState extends State<AdopcionScreen>
         ultimaInteraccion: DateTime.now(),
       );
 
-      await referenciaMascota.set(mascota.toFirestore());
+      final batch = FirebaseFirestore.instance.batch();
+      final mascotasActivas = await mascotasRef
+          .where('activa', isEqualTo: true)
+          .get();
+      for (final doc in mascotasActivas.docs) {
+        batch.update(doc.reference, {'activa': false});
+      }
+      batch.set(referenciaMascota, mascota.toFirestore());
+      await batch.commit();
       await petCubit.cargarMascota();
 
       if (!mounted) return;
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          title: const Text('Felicidades ðŸŽ‰'),
-          content: Text(
-            'Adoptaste a $_nombreActual.\n'
-            'Es un $_tipoSeleccionado $_personalidadSeleccionada.\n\n'
-            '${_opcionPersonalidadSeleccionada.resumen}',
-          ),
-          actions: [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.azulPrincipal,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              onPressed: () {
-                Navigator.pop(context);
-                context.go(AppRoutes.home);
-              },
-              child: const Text('Vamos', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        ),
-      );
+      setState(() => _mostrarCelebracion = true);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
