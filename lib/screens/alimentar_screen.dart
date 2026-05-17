@@ -1,25 +1,20 @@
-import 'dart:async';
-import 'dart:math';
-
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 
-import '../Models/inventario_comida_model.dart';
 import '../application/cubits/pet_world_cubit.dart';
 import '../core/app_colors.dart';
 import '../core/cosmetic_catalog.dart';
 import '../core/disaster_system.dart';
-import '../core/enums/personalidad_tipo.dart';
 import '../core/food_catalog.dart';
 import '../cubit/pet_cubit.dart';
 import '../cubit/pet_state.dart';
-import '../data/repositories/inventory_repository.dart';
-import '../data/repositories/user_repository.dart';
 import '../domain/enums/pet_activity.dart';
 import '../domain/enums/pet_location.dart';
+import '../screens/alimentar/alimentar_cubit.dart';
+import '../screens/alimentar/alimentar_controller.dart';
+import '../screens/alimentar/alimentar_state.dart';
 import '../widgets/action_screen_header.dart';
 import '../widgets/paw_map_widget.dart';
 import '../widgets/pet_avatar_rive.dart';
@@ -33,33 +28,24 @@ class AlimentarScreen extends StatefulWidget {
 
 class _AlimentarScreenState extends State<AlimentarScreen>
     with SingleTickerProviderStateMixin {
-  static const int _defaultMissionRewardCoins = 5;
-
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final InventoryRepository _inventoryRepository = InventoryRepository();
-  final UserRepository _userRepository = UserRepository();
-  final Random _random = Random();
-
   late AnimationController _petAnimationController;
+  late final AlimentarCubit _alimentarCubit;
   final LayerLink _cupboardLayerLink = LayerLink();
-
-  FoodCatalogItem? activeBag;
-  double plateLevel = 0;
-  bool eating = false;
+  final GlobalKey _plateVisualKey = GlobalKey();
   bool cupboardOpen = false;
-  bool _loadingData = true;
-  int _coins = 0;
-
-  String? _plateFoodId;
-  String _plateEmoji = 'ðŸ¥©';
-  List<String> foodInPlate = [];
-
-  Map<String, double> _inventoryUnits = {};
-  Map<String, bool> _unlockedFoods = {};
-
-  Timer? pouringTimer;
   double _swipeDx = 0.0;
+
+  AlimentarState get _feedingState => _alimentarCubit.state;
+  FoodCatalogItem? get _activeBag => _feedingState.activeBag;
+  double get _plateLevel => _feedingState.plateLevel;
+  bool get _loadingData => _feedingState.loading;
+  int get _coins => _feedingState.coins;
+  String? get _plateFoodId => _feedingState.plateFoodId;
+  String get _plateEmoji => _feedingState.plateEmoji;
+  List<String> get _foodInPlate => _feedingState.foodInPlate;
+  Map<String, double> get _inventoryUnits => _feedingState.inventoryUnits;
+  bool get _isEating =>
+      context.read<PetCubit>().state.mascota?.platoComiendo ?? false;
 
   @override
   void initState() {
@@ -68,158 +54,29 @@ class _AlimentarScreenState extends State<AlimentarScreen>
       duration: const Duration(seconds: 2),
       vsync: this,
     )..repeat(reverse: true);
-    _cargarDatos();
+    _alimentarCubit = AlimentarCubit();
+    _alimentarCubit.initialize(pet: context.read<PetCubit>().state.mascota);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      await _syncWorldEntry();
-      await _ensureLockedEatingState();
+      if (!mounted) return;
+      await AlimentarController.syncWorldEntry(
+        petCubit: context.read<PetCubit>(),
+        worldCubit: context.read<PetWorldCubit>(),
+        disasterCubit: context.read<DisasterCubit>(),
+        isEating: _isEating,
+      );
+      if (!mounted) return;
+      await AlimentarController.ensureLockedEatingState(
+        petCubit: context.read<PetCubit>(),
+        worldCubit: context.read<PetWorldCubit>(),
+      );
     });
-  }
-
-  Future<void> _syncWorldEntry() async {
-    if (!mounted) return;
-    final mascota = context.read<PetCubit>().state.mascota;
-    if (mascota == null) return;
-    final worldCubit = context.read<PetWorldCubit>();
-    final disasterCubit = context.read<DisasterCubit>();
-    await worldCubit.syncScreenEntry(
-      mascota: mascota,
-      location: PetLocation.alimentar,
-      fallbackActivity: eating ? PetActivity.eating : PetActivity.idle,
-    );
-    if (!mounted) return;
-    await disasterCubit.verificarDesastre(mascota.idMascota);
-  }
-
-  Future<void> _ensureLockedEatingState() async {
-    if (!mounted) return;
-    final world = context.read<PetWorldCubit>().state;
-    final mascota = context.read<PetCubit>().state.mascota;
-    if (mascota == null) return;
-    if (world.isLocationLocked &&
-        world.location == PetLocation.alimentar &&
-        world.activity == PetActivity.eating &&
-        mascota.nivelPlato > 0 &&
-        !mascota.platoComiendo) {
-      await context.read<PetCubit>().iniciarComidaPlato();
-    }
-  }
-
-  Future<void> _syncEatingAnchor({required bool isEatingNow}) async {
-    final mascota = context.read<PetCubit>().state.mascota;
-    if (mascota == null) return;
-    final worldCubit = context.read<PetWorldCubit>();
-
-    if (isEatingNow) {
-      await worldCubit.updateWorld(
-        mascota: mascota,
-        next: worldCubit.state.copyWith(
-          location: PetLocation.alimentar,
-          activity: PetActivity.eating,
-          currentFoodId: _plateFoodId ?? worldCubit.state.currentFoodId,
-          clearToy: true,
-          isLocationLocked: true,
-          isNapTime: false,
-          simulatedAt: DateTime.now(),
-        ),
-      );
-      return;
-    }
-
-    if (worldCubit.state.isLocationLocked &&
-        worldCubit.state.location == PetLocation.alimentar) {
-      await worldCubit.updateWorld(
-        mascota: mascota,
-        next: worldCubit.state.copyWith(
-          activity: PetActivity.idle,
-          clearFood: true,
-          isLocationLocked: false,
-          isNapTime: false,
-          simulatedAt: DateTime.now(),
-        ),
-      );
-    }
   }
 
   @override
   void dispose() {
-    pouringTimer?.cancel();
+    _alimentarCubit.close();
     _petAnimationController.dispose();
     super.dispose();
-  }
-
-  Future<void> _cargarDatos() async {
-    final userId = _auth.currentUser?.uid;
-    final pet = context.read<PetCubit>().state.mascota;
-    if (pet != null) {
-      plateLevel = pet.nivelPlato;
-      eating = pet.platoComiendo;
-      if (pet.platoAlimentoId.isNotEmpty) {
-        _plateFoodId = pet.platoAlimentoId;
-        _plateEmoji = pet.platoEmoji.isNotEmpty
-            ? pet.platoEmoji
-            : (FoodCatalog.byId(pet.platoAlimentoId)?.emoji ?? _plateEmoji);
-      }
-      _syncFoodInPlate();
-    }
-
-    if (userId == null) {
-      if (!mounted) return;
-      setState(() => _loadingData = false);
-      return;
-    }
-
-    try {
-      await _inventoryRepository.ensureDefaultInventory(userId);
-      await _userRepository.normalizeLegacyUserDoc(userId);
-      final inventory = await _inventoryRepository.loadFoodInventory(userId);
-      final coins = await _userRepository.loadCoins(userId);
-
-      if (!mounted) return;
-      setState(() {
-        _coins = coins;
-        _inventoryUnits = inventory.cantidades;
-        _unlockedFoods = inventory.desbloqueados;
-        _loadingData = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _loadingData = false);
-    }
-  }
-
-  void _syncFoodInPlate() {
-    final pieces = (plateLevel / 20).ceil().clamp(0, 5).toInt();
-    foodInPlate = List<String>.generate(pieces, (_) => _plateEmoji);
-  }
-
-  bool _isFoodUnlocked(String id) => _unlockedFoods[id] ?? false;
-
-  bool _canUseFood(String id) =>
-      _isFoodUnlocked(id) && (_inventoryUnits[id] ?? 0.0) > 0.0;
-
-  Future<void> _persistInventoryAndPlate() async {
-    final petCubit = context.read<PetCubit>();
-    final userId = _auth.currentUser?.uid;
-    if (userId != null) {
-      await _inventoryRepository.saveFoodInventoryAndCoins(
-        userId: userId,
-        coins: _coins,
-        inventory: InventarioComidaModel(
-          cantidades: _inventoryUnits,
-          desbloqueados: _unlockedFoods,
-        ),
-      );
-    }
-
-    await petCubit.actualizarEstadoPlato(
-      nivelPlato: plateLevel,
-      platoAlimentoId: plateLevel > 0 ? _plateFoodId : null,
-      clearPlatoAlimentoId: plateLevel <= 0,
-      platoEmoji: plateLevel > 0 ? _plateEmoji : null,
-      clearPlatoEmoji: plateLevel <= 0,
-      platoComiendo: eating,
-      platoActualizado: DateTime.now(),
-    );
   }
 
   void _showFoodInfo(FoodCatalogItem food) {
@@ -244,373 +101,178 @@ class _AlimentarScreenState extends State<AlimentarScreen>
   }
 
   void handleSelectFood(FoodCatalogItem food) {
-    if (eating) return;
-
-    if (!_isFoodUnlocked(food.id)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Ese alimento estÃ¡ bloqueado. CÃ³mpralo en Tienda.'),
-        ),
-      );
-      return;
+    final message = _alimentarCubit.selectFood(food, eating: _isEating);
+    if (message != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     }
-
-    if ((_inventoryUnits[food.id] ?? 0.0) <= 0.0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No tienes bolsas de ${food.name}.')),
-      );
-      return;
-    }
-
-    if (plateLevel > 0 && _plateFoodId != null && _plateFoodId != food.id) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Primero termina el alimento que ya estÃ¡ en el plato.',
-          ),
-        ),
-      );
-      return;
-    }
-
-    setState(() {
-      activeBag = food;
-      cupboardOpen = false;
-      _plateFoodId ??= food.id;
-      _plateEmoji = food.emoji;
-    });
-  }
-
-  void startPouring() {
-    final bag = activeBag;
-    if (bag == null || eating || plateLevel >= 100 || pouringTimer != null) {
-      return;
-    }
-    if (!_canUseFood(bag.id)) return;
-
-    if (_plateFoodId != null && _plateFoodId != bag.id && plateLevel > 0) {
-      return;
-    }
-
-    _plateFoodId = bag.id;
-    _plateEmoji = bag.emoji;
-
-    pouringTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      final currentUnits = _inventoryUnits[bag.id] ?? 0.0;
-      if (currentUnits <= 0.0 || plateLevel >= 100) {
-        stopPouring();
-        return;
-      }
-
-      const plateStep = 2.0;
-      final plateAvailable = 100.0 - plateLevel;
-      final plateIncrease = min(plateStep, plateAvailable);
-      final bagCost = plateIncrease * FoodCatalog.bagUsagePerPlatePercent;
-
-      setState(() {
-        if (currentUnits >= bagCost) {
-          plateLevel = (plateLevel + plateIncrease).clamp(0, 100);
-          _inventoryUnits[bag.id] = (currentUnits - bagCost)
-              .clamp(0, 99999)
-              .toDouble();
-        } else {
-          final possibleIncrease =
-              currentUnits / FoodCatalog.bagUsagePerPlatePercent;
-          plateLevel = (plateLevel + possibleIncrease).clamp(0, 100);
-          _inventoryUnits[bag.id] = 0.0;
-        }
-        _syncFoodInPlate();
-      });
-
-      if ((_inventoryUnits[bag.id] ?? 0.0) <= 0.0 || plateLevel >= 100) {
-        stopPouring();
-      }
-    });
-  }
-
-  Future<void> stopPouring() async {
-    pouringTimer?.cancel();
-    pouringTimer = null;
-    await _persistInventoryAndPlate();
-  }
-
-  void removeBag() {
-    setState(() {
-      activeBag = null;
-    });
-  }
-
-  Future<void> handleFeedPet() async {
-    if (plateLevel <= 0 || _plateFoodId == null) return;
-
-    final petCubit = context.read<PetCubit>();
-    final estadoDescanso =
-        petCubit.state.mascota?.estadoDescanso ?? 'despierto';
-    final estaDescansando =
-        estadoDescanso == 'dormido' ||
-        estadoDescanso == 'acostado' ||
-        estadoDescanso == 'siesta';
-    if (estaDescansando) return;
-
-    final personalidad =
-        petCubit.state.mascota?.personalidad ?? PersonalidadTipo.jugueton;
-    final isJugueton = personalidad == PersonalidadTipo.jugueton;
-    final isTravieso = personalidad == PersonalidadTipo.travieso;
-    final throwProbability = isTravieso ? 0.45 : (isJugueton ? 0.30 : 0.0);
-
-    if (throwProbability > 0 && _random.nextDouble() <= throwProbability) {
-      await _tirarComida();
-      final item = FoodCatalog.byId(_plateFoodId);
-      final puntos = ((item?.hungerPoints ?? 15) * 0.2).round();
-      await petCubit.alimentar(
-        puntos,
-        emojiAlimento: _plateEmoji,
-        skipDisasterRoll: true,
-      );
-      await petCubit.detenerComidaPlato();
-      return;
-    }
-
-    setState(() => eating = true);
-    await petCubit.iniciarComidaPlato();
-    await _syncEatingAnchor(isEatingNow: true);
-  }
-
-  Future<void> _detenerComidaManual() async {
-    setState(() => eating = false);
-    await context.read<PetCubit>().detenerComidaPlato();
-    await _syncEatingAnchor(isEatingNow: false);
-  }
-
-  Future<void> _tirarComida() async {
-    final cantidad = 5 + _random.nextInt(4);
-    final petCubit = context.read<PetCubit>();
-    final disasterCubit = context.read<DisasterCubit>();
-    final mascotaId = petCubit.state.mascota?.idMascota;
-    if (mascotaId == null) return;
-
-    setState(() {
-      plateLevel = 0;
-      _plateFoodId = null;
-      foodInPlate.clear();
-      eating = false;
-    });
-
-    await _crearMisionRecoger();
-    if (!mounted) return;
-    await disasterCubit.generarDesastre(
-      mascotaId: mascotaId,
-      tipo: DisasterType.comida,
-      emoji: _plateEmoji,
-      cantidad: cantidad,
-      pantalla: disasterScreenAlimentar,
-    );
-    if (!mounted) return;
-    petCubit.actualizarEstadoPlato(
-      nivelPlato: 0,
-      clearPlatoAlimentoId: true,
-      clearPlatoEmoji: true,
-      platoComiendo: false,
-      platoActualizado: DateTime.now(),
-    );
-  }
-
-  Future<void> _crearMisionRecoger() async {
-    final userId = _auth.currentUser?.uid;
-    final mascotaId = context.read<PetCubit>().state.mascota?.idMascota;
-    if (userId == null || mascotaId == null) return;
-
-    await _firestore
-        .collection('usuarios')
-        .doc(userId)
-        .collection('mascotas')
-        .doc(mascotaId)
-        .collection('misiones_activas')
-        .doc('recoger_comida')
-        .set({
-          'tipo': 'recoger_comida',
-          'reward_coins': _defaultMissionRewardCoins,
-          'estado': 'pendiente',
-          'emoji': _plateEmoji,
-          'fecha_asignada': Timestamp.now(),
-          'fecha_completada': null,
-          'streak': 0,
-        }, SetOptions(merge: true));
-  }
-
-  String _stockLabel(String foodId) {
-    final units = _inventoryUnits[foodId] ?? 0.0;
-    final bags = (units / FoodCatalog.bagUnits).toStringAsFixed(1);
-    return '$bags bolsas';
+    setState(() => cupboardOpen = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    return BlocListener<PetCubit, PetState>(
-      listenWhen: (previous, current) {
-        return previous.mascota?.nivelPlato != current.mascota?.nivelPlato ||
-            previous.mascota?.platoComiendo != current.mascota?.platoComiendo ||
-            previous.mascota?.platoAlimentoId !=
-                current.mascota?.platoAlimentoId ||
-            previous.mascota?.platoEmoji != current.mascota?.platoEmoji;
-      },
-      listener: (context, state) async {
-        if (pouringTimer != null) return;
-        final mascota = state.mascota;
-        if (mascota == null) return;
-        if (!mounted) return;
-        setState(() {
-          plateLevel = mascota.nivelPlato;
-          eating = mascota.platoComiendo;
-          _plateFoodId = mascota.platoAlimentoId.isEmpty
-              ? null
-              : mascota.platoAlimentoId;
-          if (mascota.platoEmoji.isNotEmpty) {
-            _plateEmoji = mascota.platoEmoji;
-          } else if (_plateFoodId != null) {
-            _plateEmoji = FoodCatalog.byId(_plateFoodId)?.emoji ?? _plateEmoji;
-          }
-          _syncFoodInPlate();
-        });
-        await _syncEatingAnchor(
-          isEatingNow: mascota.platoComiendo && mascota.nivelPlato > 0,
-        );
-      },
-      child: Scaffold(
-        floatingActionButton: FloatingActionButton(
-          onPressed: () => mostrarMapaHuella(context),
-          backgroundColor: AppColors.verdeFondo,
-          elevation: 8,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(30),
-          ),
-          child: const Icon(
-            Icons.pets,
-            color: AppColors.azulPrincipal,
-            size: 28,
-          ),
-        ),
-        body: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onHorizontalDragStart: (_) {
-            _swipeDx = 0.0;
-          },
-          onHorizontalDragUpdate: (details) {
-            _swipeDx += details.delta.dx;
-          },
-          onHorizontalDragEnd: (details) {
-            const minDistance = 90.0;
-            const minVelocity = 700.0;
-            final velocityX = details.primaryVelocity ?? 0.0;
-            final isIntentionalLeftSwipe =
-                _swipeDx <= -minDistance && velocityX <= -minVelocity;
-            final isIntentionalRightSwipe =
-                _swipeDx >= minDistance && velocityX >= minVelocity;
-
-            if (isIntentionalLeftSwipe) {
-              context.goNamed(
-                'home',
-                extra: 'alimentar',
-              );
-            } else if (isIntentionalRightSwipe) {
-              context.goNamed(
-                'curar',
-                extra: 'alimentar',
-              );
-            }
-            _swipeDx = 0.0;
-          },
-          child: Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Color(0xFFE8D5C4),
-                  Color(0xFFF0E6D2),
-                  Color(0xFFD4C4B0),
-                ],
-              ),
-            ),
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: Opacity(
-                    opacity: 0.1,
-                    child: CustomPaint(painter: TilePainter()),
-                  ),
+    return BlocProvider.value(
+      value: _alimentarCubit,
+      child: BlocListener<PetCubit, PetState>(
+        listenWhen: (previous, current) {
+          return previous.mascota?.nivelPlato != current.mascota?.nivelPlato ||
+              previous.mascota?.platoComiendo !=
+                  current.mascota?.platoComiendo ||
+              previous.mascota?.platoAlimentoId !=
+                  current.mascota?.platoAlimentoId ||
+              previous.mascota?.platoEmoji != current.mascota?.platoEmoji;
+        },
+        listener: (context, state) async {
+          final mascota = state.mascota;
+          if (mascota == null) return;
+          _alimentarCubit.syncFromPet(mascota);
+          await AlimentarController.syncEatingAnchor(
+            petCubit: context.read<PetCubit>(),
+            worldCubit: context.read<PetWorldCubit>(),
+            isEatingNow: mascota.platoComiendo && mascota.nivelPlato > 0,
+            plateFoodId: _plateFoodId,
+          );
+        },
+        child: BlocBuilder<AlimentarCubit, AlimentarState>(
+          builder: (context, alimentarState) {
+            return Scaffold(
+              floatingActionButton: FloatingActionButton(
+                onPressed: () => mostrarMapaHuella(context),
+                backgroundColor: AppColors.verdeFondo,
+                elevation: 8,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30),
                 ),
-                SafeArea(
-                  top: false,
-                  child: Column(
+                child: const Icon(
+                  Icons.pets,
+                  color: AppColors.azulPrincipal,
+                  size: 28,
+                ),
+              ),
+              body: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onHorizontalDragStart: (_) {
+                  _swipeDx = 0.0;
+                },
+                onHorizontalDragUpdate: (details) {
+                  _swipeDx += details.delta.dx;
+                },
+                onHorizontalDragEnd: (details) {
+                  const minDistance = 90.0;
+                  const minVelocity = 700.0;
+                  final velocityX = details.primaryVelocity ?? 0.0;
+                  final isIntentionalLeftSwipe =
+                      _swipeDx <= -minDistance && velocityX <= -minVelocity;
+                  final isIntentionalRightSwipe =
+                      _swipeDx >= minDistance && velocityX >= minVelocity;
+
+                  if (isIntentionalLeftSwipe) {
+                    context.goNamed('home', extra: 'alimentar');
+                  } else if (isIntentionalRightSwipe) {
+                    context.goNamed('curar', extra: 'alimentar');
+                  }
+                  _swipeDx = 0.0;
+                },
+                child: Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Color(0xFFE8D5C4),
+                        Color(0xFFF0E6D2),
+                        Color(0xFFD4C4B0),
+                      ],
+                    ),
+                  ),
+                  child: Stack(
                     children: [
-                      ActionScreenHeader(
-                        icon: Icons.kitchen,
-                        title: 'Comedor',
-                        subtitlePrefix: 'Hora de comer',
-                        statLabel: 'Hambre:',
-                        statSelector: (mascota) => mascota.nivelHambre,
-                        barColors: const [Color(0xFFF0C77A), Color(0xFFFFD166)],
+                      Positioned.fill(
+                        child: Opacity(
+                          opacity: 0.1,
+                          child: CustomPaint(painter: TilePainter()),
+                        ),
                       ),
-                      if (_loadingData)
-                        const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 10),
-                          child: CircularProgressIndicator(),
-                        ),
-                      if (!_loadingData)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 9,
+                      SafeArea(
+                        top: false,
+                        child: Column(
+                          children: [
+                            ActionScreenHeader(
+                              icon: Icons.kitchen,
+                              title: 'Comedor',
+                              subtitlePrefix: 'Hora de comer',
+                              statLabel: 'Hambre:',
+                              statSelector: (mascota) => mascota.nivelHambre,
+                              barColors: const [
+                                Color(0xFFF0C77A),
+                                Color(0xFFFFD166),
+                              ],
                             ),
-                            decoration: BoxDecoration(
-                              color: AppColors.doradoSuave,
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(color: AppColors.doradoBorde),
-                            ),
-                            child: Text(
-                              '🪙 $_coins',
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.doradoTexto,
+                            if (_loadingData)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 10),
+                                child: CircularProgressIndicator(),
                               ),
-                            ),
-                          ),
-                        ),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24.0),
-                          child: Column(
-                            children: [
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  SizedBox(
-                                    width: 150,
-                                    height: 120,
-                                    child: _buildCupboard(),
+                            if (!_loadingData)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 9,
                                   ),
-                                  const SizedBox(width: 16),
-                                  Expanded(child: _buildTable()),
-                                ],
+                                  decoration: BoxDecoration(
+                                    color: AppColors.doradoSuave,
+                                    borderRadius: BorderRadius.circular(999),
+                                    border: Border.all(
+                                      color: AppColors.doradoBorde,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    '🪙 $_coins',
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.doradoTexto,
+                                    ),
+                                  ),
+                                ),
                               ),
-                              const SizedBox(height: 24),
-                              Expanded(child: _buildPet()),
-                              _buildPlate(),
-                            ],
-                          ),
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24.0),
+                                child: Column(
+                                  children: [
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        SizedBox(
+                                          width: 150,
+                                          height: 120,
+                                          child: _buildCupboard(),
+                                        ),
+                                        const SizedBox(width: 16),
+                                        Expanded(child: _buildTable()),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 24),
+                                    Expanded(child: _buildPet()),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
+                      if (cupboardOpen) _buildCupboardOverlay(),
                     ],
                   ),
                 ),
-                if (cupboardOpen) _buildCupboardOverlay(),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         ),
       ),
     );
@@ -814,7 +476,8 @@ class _AlimentarScreenState extends State<AlimentarScreen>
                               itemCount: FoodCatalog.items.length,
                               itemBuilder: (context, index) {
                                 final food = FoodCatalog.items[index];
-                                final isUnlocked = _isFoodUnlocked(food.id);
+                                final isUnlocked = _alimentarCubit
+                                    .isFoodUnlocked(food.id);
                                 final hasStock =
                                     (_inventoryUnits[food.id] ?? 0.0) > 0.0;
                                 return GestureDetector(
@@ -833,7 +496,7 @@ class _AlimentarScreenState extends State<AlimentarScreen>
                                           border: Border.all(
                                             color:
                                                 (_plateFoodId == food.id &&
-                                                    plateLevel > 0)
+                                                    _plateLevel > 0)
                                                 ? AppColors.azulPrincipal
                                                 : Colors.transparent,
                                             width: 2,
@@ -861,7 +524,9 @@ class _AlimentarScreenState extends State<AlimentarScreen>
                                             ),
                                             const SizedBox(height: 1),
                                             Text(
-                                              _stockLabel(food.id),
+                                              _alimentarCubit.stockLabel(
+                                                food.id,
+                                              ),
                                               style: const TextStyle(
                                                 fontSize: 8,
                                                 color: Colors.black54,
@@ -944,13 +609,13 @@ class _AlimentarScreenState extends State<AlimentarScreen>
             ),
           ),
 
-          // Botón X si hay bolsa activa
-          if (activeBag != null)
+          // BotÃ³n X si hay bolsa activa
+          if (_activeBag != null)
             Positioned(
               top: 8,
               right: 8,
               child: GestureDetector(
-                onTap: removeBag,
+                onTap: _alimentarCubit.removeBag,
                 child: Container(
                   width: 24,
                   height: 24,
@@ -971,7 +636,7 @@ class _AlimentarScreenState extends State<AlimentarScreen>
                 ),
               ),
             ),
-          if (activeBag != null)
+          if (_activeBag != null)
             Center(child: _buildDraggableBag(context))
           else
             const Center(
@@ -992,7 +657,7 @@ class _AlimentarScreenState extends State<AlimentarScreen>
     final canShowPet =
         !worldState.isLocationLocked ||
         worldState.location == PetLocation.alimentar;
-    if (!canShowPet) return const SizedBox.shrink();
+    final isPlaying = worldState.activity == PetActivity.playing;
 
     return BlocBuilder<PetCubit, PetState>(
       builder: (context, state) {
@@ -1002,14 +667,18 @@ class _AlimentarScreenState extends State<AlimentarScreen>
         );
         return LayoutBuilder(
           builder: (context, constraints) {
+            final estaDescansando = context.read<PetCubit>().estaDescansando(
+              state.mascota,
+            );
             final compact = constraints.maxHeight < 220;
             final veryCompact = constraints.maxHeight < 180;
             final petSize = compact ? 68.0 : 80.0;
             final hatSize = compact ? 24.0 : 28.0;
             final gap = compact ? 8.0 : 16.0;
-            final bubbleText = eating
-                ? 'Estoy comiendo'
-                : (plateLevel == 0 ? 'Tengo hambre' : null);
+            final isCat = petEmoji == 'gato' || petEmoji == 'cat';
+            final bubbleText = !canShowPet
+                ? 'Estoy ${_locationLabel(worldState.location)}'
+                : (_isEating ? 'Estoy comiendo' : 'Tengo hambre');
 
             return SizedBox(
               width: constraints.maxWidth,
@@ -1020,50 +689,34 @@ class _AlimentarScreenState extends State<AlimentarScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    AnimatedBuilder(
-                      animation: _petAnimationController,
-                      builder: (context, child) {
-                        return Transform.translate(
-                          offset: Offset(
-                            0,
-                            eating ? 0 : _petAnimationController.value * 8,
-                          ),
-                          child: Transform.rotate(
-                            angle: eating
-                                ? _petAnimationController.value * 0.1
-                                : 0,
-                            child: child,
-                          ),
-                        );
-                      },
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        alignment: Alignment.center,
-                        children: [
-                          PetAvatarRive(
-                            tipoMascota: petEmoji,
-                            width: petSize + 46,
-                            height: petSize + 46,
-                          ),
-                          if (headItemEmoji != null)
-                            Positioned(
-                              top: compact ? -8 : -10,
-                              child: Text(
-                                headItemEmoji,
-                                style: TextStyle(fontSize: hatSize),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    if (bubbleText != null && !veryCompact)
-                      SizedBox(height: gap),
-                    if (bubbleText != null && !veryCompact)
+                    if (!veryCompact)
                       _bubbleText(
                         bubbleText,
                         fontSize: compact ? 14 : 16,
                         horizontalPadding: compact ? 16 : 24,
                         verticalPadding: compact ? 6 : 8,
+                      ),
+                    if (!veryCompact) SizedBox(height: gap),
+                    _buildFeedingScene(
+                      compact: compact,
+                      canShowPet: canShowPet,
+                      isCat: isCat,
+                      petEmoji: petEmoji,
+                      petSize: petSize,
+                      hatSize: hatSize,
+                      headItemEmoji: headItemEmoji,
+                    ),
+                    SizedBox(height: compact ? 12 : 14),
+                    _buildFeedButton(
+                      compact: compact,
+                      estaDescansando: estaDescansando,
+                      isPlaying: isPlaying,
+                    ),
+                    if (_activeBag != null) SizedBox(height: compact ? 10 : 12),
+                    if (_activeBag != null)
+                      _buildBagHintText(
+                        compact: compact,
+                        bagName: _activeBag!.name,
                       ),
                   ],
                 ),
@@ -1097,106 +750,244 @@ class _AlimentarScreenState extends State<AlimentarScreen>
     );
   }
 
-  Widget _buildPlate() {
-    final estadoDescanso = context.select(
-      (PetCubit cubit) => cubit.state.mascota?.estadoDescanso ?? 'despierto',
+  String _locationLabel(PetLocation location) {
+    switch (location) {
+      case PetLocation.home:
+        return 'en casa';
+      case PetLocation.alimentar:
+        return 'Aqui';
+      case PetLocation.jugar:
+        return 'Jugando';
+      case PetLocation.dormir:
+        return 'durmiendo';
+      case PetLocation.curar:
+        return 'en el veterianario';
+      case PetLocation.banar:
+        return 'en el baño';
+    }
+  }
+
+  Widget _buildPlateSvg({
+    required double width,
+    required double height,
+    BoxFit fit = BoxFit.contain,
+  }) {
+    return SvgPicture.asset(
+      'assets/images/plato_vectorized.svg',
+      width: width,
+      height: height,
+      fit: fit,
     );
-    final estaDescansando =
-        estadoDescanso == 'dormido' ||
-        estadoDescanso == 'acostado' ||
-        estadoDescanso == 'siesta';
+  }
+
+  Widget _buildFeedingScene({
+    required bool compact,
+    required bool canShowPet,
+    required bool isCat,
+    required String petEmoji,
+    required double petSize,
+    required double hatSize,
+    required String? headItemEmoji,
+  }) {
+    final sceneWidth = compact ? 180.0 : 220.0;
+    final sceneHeight = compact ? 175.0 : 215.0;
+    final avatarWidth = compact ? petSize + 74 : petSize + 92;
+    final avatarHeight = compact ? petSize + 74 : petSize + 92;
+    final avatarTopOffset = compact ? -10.0 : -14.0;
+    final plateTopOffset = compact ? 96.0 : 118.0;
+    final eatingCatWidth = compact ? 96.0 : 112.0;
+    final eatingCatHeight = compact ? 96.0 : 112.0;
+    final eatingCatBottom = compact ? 12.0 : 14.0;
+    final eatingCatRightOffset = compact ? 1.0 : 5.0;
+
+    return SizedBox(
+      width: sceneWidth,
+      height: sceneHeight,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.topCenter,
+        children: [
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: AnimatedBuilder(
+                animation: _petAnimationController,
+                builder: (context, child) {
+                  return Transform.translate(
+                    offset: Offset(
+                      0,
+                      _isEating ? 0 : _petAnimationController.value * 8,
+                    ),
+                    child: Transform.rotate(
+                      angle: _isEating
+                          ? _petAnimationController.value * 0.04
+                          : 0,
+                      child: child,
+                    ),
+                  );
+                },
+                child: Transform.translate(
+                  offset: Offset(0, avatarTopOffset),
+                  child: SizedBox(
+                    width: avatarWidth,
+                    height: avatarHeight,
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 420),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      transitionBuilder: (child, animation) {
+                        return FadeTransition(
+                          opacity: animation,
+                          child: ScaleTransition(
+                            scale: Tween<double>(
+                              begin: 0.92,
+                              end: 1,
+                            ).animate(animation),
+                            child: SlideTransition(
+                              position: Tween<Offset>(
+                                begin: const Offset(0, 0.08),
+                                end: Offset.zero,
+                              ).animate(animation),
+                              child: child,
+                            ),
+                          ),
+                        );
+                      },
+                      child: !canShowPet
+                          ? SizedBox(
+                              key: const ValueKey('pet-hidden'),
+                              width: avatarWidth,
+                              height: avatarHeight,
+                            )
+                          : _isEating && isCat
+                          ? Stack(
+                              key: const ValueKey('pet-eating-cat'),
+                              clipBehavior: Clip.none,
+                              alignment: Alignment.bottomCenter,
+                              children: [
+                                Positioned(
+                                  right: eatingCatRightOffset,
+                                  bottom: eatingCatBottom,
+                                  child: Transform.translate(
+                                    // El SVG viene unido, así que simulamos el
+                                    // cabeceo de comer con un rebote vertical corto.
+                                    offset: Offset(
+                                      0,
+                                      _petAnimationController.value * 6,
+                                    ),
+                                    child: SvgPicture.asset(
+                                      'assets/images/gato_comiendo_vectorized.svg',
+                                      width: eatingCatWidth,
+                                      height: eatingCatHeight,
+                                      fit: BoxFit.contain,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Stack(
+                              key: const ValueKey('pet-base'),
+                              clipBehavior: Clip.none,
+                              alignment: Alignment.center,
+                              children: [
+                                PetAvatarRive(
+                                  tipoMascota: petEmoji,
+                                  width: avatarWidth,
+                                  height: avatarHeight,
+                                ),
+                                if (headItemEmoji != null)
+                                  Positioned(
+                                    top: compact ? -8 : -10,
+                                    child: Text(
+                                      headItemEmoji,
+                                      style: TextStyle(fontSize: hatSize),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: plateTopOffset,
+            child: _buildPlateVisual(compact: compact),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlateVisual({bool compact = false}) {
+    final plateWidth = compact ? 136.0 : 162.0;
+    final plateHeight = compact ? 88.0 : 104.0;
+    final liquidLeftRight = compact ? 28.0 : 34.0;
+    final liquidBottom = compact ? 41.0 : 45.0;
+    final foodLeftRight = compact ? 18.0 : 22.0;
+    final foodBottom = compact ? 42.0 : 46.0;
+    final foodHeight = compact ? 38.0 : 44.0;
+    final foodEmojiSize = compact ? 17.0 : 20.0;
+    final levelBottom = compact ? -1.0 : -2.0;
+    final liquidHeight = compact ? 34.0 : 42.0;
 
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        if (plateLevel > 0 && !estaDescansando)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 16),
-            child: ElevatedButton(
-              onPressed: eating ? _detenerComidaManual : handleFeedPet,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: eating
-                    ? const Color(0xFFF07A94)
-                    : const Color(0xFFA3FF88),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 12,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
-              ),
-              child: Text(
-                eating ? 'Detener comida' : 'Que coma',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-          ),
-        Container(
-          width: 180,
-          height: 90,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Colors.white, Color(0xFFF5F5F5)],
-            ),
-            borderRadius: const BorderRadius.all(Radius.elliptical(90, 45)),
-            border: Border.all(color: Colors.grey[400]!, width: 4),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.2),
-                blurRadius: 15,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
+        SizedBox(
+          key: _plateVisualKey,
+          width: plateWidth,
+          height: plateHeight,
           child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
             children: [
+              Positioned.fill(
+                child: _buildPlateSvg(width: plateWidth, height: plateHeight),
+              ),
               Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.all(
-                    Radius.elliptical(90, 45),
-                  ),
-                  child: Container(
-                    height: 90 * (plateLevel / 100),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                        colors: [
-                          const Color(0xFF8AE670).withValues(alpha: 0.4),
-                          Colors.transparent,
-                        ],
+                left: liquidLeftRight,
+                right: liquidLeftRight,
+                bottom: liquidBottom,
+                child: ClipOval(
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    heightFactor: (_plateLevel / 100).clamp(0.0, 1.0),
+                    child: Container(
+                      height: liquidHeight,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(999),
+                        gradient: LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          colors: [
+                            const Color(0xFF8AE670).withValues(alpha: 0.55),
+                            const Color(0xFFB8F3A7).withValues(alpha: 0.18),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-              Positioned.fill(
-                child: Align(
-                  alignment: Alignment.bottomCenter,
-                  child: Padding(
-                    padding: const EdgeInsets.only(
-                      top: 10,
-                      left: 20,
-                      right: 20,
-                    ),
+              Positioned(
+                left: foodLeftRight,
+                right: foodLeftRight,
+                bottom: foodBottom,
+                child: SizedBox(
+                  height: foodHeight,
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
                     child: Wrap(
                       spacing: 4,
                       runSpacing: -10,
                       alignment: WrapAlignment.center,
-                      children: foodInPlate
+                      children: _foodInPlate
                           .map(
                             (emoji) => Text(
                               emoji,
-                              style: const TextStyle(fontSize: 26),
+                              style: TextStyle(fontSize: foodEmojiSize),
                             ),
                           )
                           .toList(),
@@ -1204,34 +995,124 @@ class _AlimentarScreenState extends State<AlimentarScreen>
                   ),
                 ),
               ),
+              Positioned(
+                bottom: levelBottom,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.88),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.08),
+                        blurRadius: 6,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    '${_plateLevel.toInt()}%',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ),
+              ),
             ],
-          ),
-        ),
-
-        // Indicador de nivel
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.8),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            '${plateLevel.toInt()}%',
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Colors.black87,
-            ),
           ),
         ),
       ],
     );
   }
 
+  Widget _buildFeedButton({
+    bool compact = false,
+    required bool estaDescansando,
+    required bool isPlaying,
+  }) {
+    if (_plateLevel <= 0 || estaDescansando) {
+      return const SizedBox.shrink();
+    }
+
+    return ElevatedButton(
+      onPressed: isPlaying
+          ? null
+          : () async {
+              final petCubit = context.read<PetCubit>();
+              final worldCubit = context.read<PetWorldCubit>();
+              if (_isEating) {
+                await AlimentarController.detenerComidaManual(
+                  petCubit: petCubit,
+                  worldCubit: worldCubit,
+                  plateFoodId: _plateFoodId,
+                );
+                return;
+              }
+
+              await AlimentarController.handleFeedPet(
+                alimentarCubit: _alimentarCubit,
+                petCubit: petCubit,
+                worldCubit: worldCubit,
+                plateLevel: _plateLevel,
+                plateFoodId: _plateFoodId,
+                plateEmoji: _plateEmoji,
+              );
+            },
+      style: ElevatedButton.styleFrom(
+        backgroundColor: isPlaying
+            ? const Color(0xFFD6D6D6)
+            : _isEating
+            ? const Color(0xFFF07A94)
+            : const Color(0xFFA3FF88),
+        disabledBackgroundColor: const Color(0xFFD6D6D6),
+        padding: EdgeInsets.symmetric(
+          horizontal: compact ? 20 : 24,
+          vertical: compact ? 10 : 12,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      ),
+      child: Text(
+        _isEating ? 'Detener comida' : 'Que coma',
+        style: TextStyle(
+          fontSize: compact ? 14 : 16,
+          fontWeight: FontWeight.w600,
+          color: Colors.white,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBagHintText({required bool compact, required String bagName}) {
+    return Container(
+      constraints: BoxConstraints(maxWidth: compact ? 180 : 220),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 10 : 12,
+        vertical: compact ? 6 : 8,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.86),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Text(
+        'Desliza la bolsa de $bagName sobre el plato para llenarlo',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: compact ? 11 : 12,
+          fontWeight: FontWeight.w600,
+          color: Colors.black87,
+        ),
+      ),
+    );
+  }
+
   /// Bolsa arrastrable
   Widget _buildDraggableBag(BuildContext context) {
-    final bag = activeBag;
+    final bag = _activeBag;
     if (bag == null) return const SizedBox.shrink();
     return Draggable(
       feedback: Material(
@@ -1240,15 +1121,24 @@ class _AlimentarScreenState extends State<AlimentarScreen>
       ),
       childWhenDragging: Container(),
       onDragUpdate: (details) {
-        final screenHeight = MediaQuery.of(context).size.height;
-        final plateAreaY = screenHeight * 0.75;
-        if (details.globalPosition.dy > plateAreaY - 50) {
-          startPouring();
+        if (AlimentarController.isPointerOverPlate(
+          plateVisualKey: _plateVisualKey,
+          globalPosition: details.globalPosition,
+        )) {
+          _alimentarCubit.startPouring(eating: _isEating);
         } else {
-          stopPouring();
+          AlimentarController.persistPlateAfterPour(
+            alimentarCubit: _alimentarCubit,
+            petCubit: context.read<PetCubit>(),
+            isEating: _isEating,
+          );
         }
       },
-      onDragEnd: (_) => stopPouring(),
+      onDragEnd: (_) => AlimentarController.persistPlateAfterPour(
+        alimentarCubit: _alimentarCubit,
+        petCubit: context.read<PetCubit>(),
+        isEating: _isEating,
+      ),
       child: _buildBagWidget(context, bag),
     );
   }
@@ -1286,7 +1176,7 @@ class _AlimentarScreenState extends State<AlimentarScreen>
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Expanded y FittedBox aseguran que el emoji se encoja si la caja es muy pequeña
+          // Expanded y FittedBox aseguran que el emoji se encoja si la caja es muy pequeÃ±a
           Expanded(
             child: FittedBox(
               fit: BoxFit.contain,
@@ -1310,7 +1200,6 @@ class _AlimentarScreenState extends State<AlimentarScreen>
       ),
     );
   }
-
 }
 
 /// Painter para textura de azulejos
@@ -1324,12 +1213,12 @@ class TilePainter extends CustomPainter {
 
     const tileSize = 50.0;
 
-    // Líneas verticales
+    // LÃ­neas verticales
     for (double x = 0; x < size.width; x += tileSize) {
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
     }
 
-    // Líneas horizontales
+    // LÃ­neas horizontales
     for (double y = 0; y < size.height; y += tileSize) {
       canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
     }
@@ -1348,7 +1237,7 @@ class WoodGrainPainter extends CustomPainter {
       ..strokeWidth = 1
       ..style = PaintingStyle.stroke;
 
-    // Líneas verticales simulando vetas de madera
+    // LÃ­neas verticales simulando vetas de madera
     for (double x = 0; x < size.width; x += 10) {
       canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
     }
