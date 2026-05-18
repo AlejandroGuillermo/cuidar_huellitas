@@ -45,4 +45,5 @@ class PetWorldState {
       simulatedAt: simulatedAt ?? this.simulatedAt,
     );
   }
+
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
 import '../application/cubits/pet_world_cubit.dart';
 import '../core/app_colors.dart';
@@ -51,6 +52,7 @@ class _DormirScreenState extends State<DormirScreen>
   late Animation<double> _petFloat;
   String _ultimoMensajeBloqueo = '';
   DateTime _ultimoMensajeBloqueoAt = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime? _lastSlowPetAt;
 
   // ══════════════════════════════════════════════════════
   // CICLO DE VIDA
@@ -67,7 +69,7 @@ class _DormirScreenState extends State<DormirScreen>
           () => _horaDinamica = _horaDinamica.add(const Duration(minutes: 10)),
         );
         context.read<PetCubit>().promoverSiestaANocheSiAplica(
-          esNocheActual: _esNoche,
+          esNocheActual: _esNocheJuego,
         );
       }
     });
@@ -106,6 +108,10 @@ class _DormirScreenState extends State<DormirScreen>
           ? PetActivity.sleeping
           : PetActivity.idle,
     );
+    final horaBase = worldCubit.state.simulatedAt ?? DateTime.now();
+    if (mounted) {
+      setState(() => _horaDinamica = horaBase);
+    }
     if (!mounted) return;
     await disasterCubit.verificarDesastre(mascota.idMascota);
   }
@@ -123,6 +129,33 @@ class _DormirScreenState extends State<DormirScreen>
         !mascota.estaDescansando) {
       await petCubit.forzarDescansoOffline(siesta: world.isNapTime);
     }
+  }
+
+  Future<void> _moveEscapedPetToHome() async {
+    if (!mounted) return;
+    final mascota = context.read<PetCubit>().state.mascota;
+    if (mascota == null) return;
+
+    final worldCubit = context.read<PetWorldCubit>();
+    final world = worldCubit.state;
+    if (world.isLoading) return;
+
+    final alreadyAtEscapedHome =
+        world.location == PetLocation.home &&
+        world.activity == PetActivity.roaming &&
+        world.isLocationLocked;
+    if (alreadyAtEscapedHome) return;
+
+    await worldCubit.updateWorld(
+      mascota: mascota,
+      next: world.copyWith(
+        location: PetLocation.home,
+        activity: PetActivity.roaming,
+        isLocationLocked: true,
+        isNapTime: false,
+        simulatedAt: DateTime.now(),
+      ),
+    );
   }
 
   @override
@@ -145,7 +178,11 @@ class _DormirScreenState extends State<DormirScreen>
     return _ModoHora.noche;
   }
 
-  bool get _esNoche => _modo == _ModoHora.noche;
+  bool get _esNocheJuego {
+    final simulatedAt = context.read<PetWorldCubit>().state.simulatedAt;
+    final h = (simulatedAt ?? DateTime.now()).hour;
+    return h < 6 || h >= 20;
+  }
 
   List<Color> get _coloresPared => switch (_modo) {
     _ModoHora.manana => [const Color(0xFFFFF8E1), const Color(0xFFD7CCC8)],
@@ -201,8 +238,14 @@ class _DormirScreenState extends State<DormirScreen>
   }
 
   void _onBedLongPressStart(LongPressStartDetails _) {
-    final mascota = context.read<PetCubit>().state.mascota;
+    final petState = context.read<PetCubit>().state;
+    final mascota = petState.mascota;
     if (mascota == null || mascota.estaDescansando) return;
+    if (petState.estadoMision == 'perro_rebelde') {
+      _moverPetRebelde();
+      _mostrarMensajeBloqueo('Acariciala despacio para calmarla');
+      return;
+    }
 
     _timerAcostar = Timer.periodic(const Duration(milliseconds: 60), (t) {
       setState(() {
@@ -225,7 +268,7 @@ class _DormirScreenState extends State<DormirScreen>
 
   Future<void> _ejecutarAcostar() async {
     final resultado = await context.read<PetCubit>().intentarAcostar(
-      esNoche: _esNoche,
+      esNoche: _esNocheJuego,
     );
     if (resultado == 'siesta_requiere_cortina') {
       if (!mounted) return;
@@ -254,9 +297,38 @@ class _DormirScreenState extends State<DormirScreen>
   Future<void> _onPetPanUpdate(DragUpdateDetails details) async {
     final state = context.read<PetCubit>().state;
     final mascota = state.mascota;
+    final esRebelde = state.estadoMision == 'perro_rebelde';
+
+    if (esRebelde) {
+      final now = DateTime.now();
+      final distance = details.delta.distance;
+      final elapsedMs = _lastSlowPetAt == null
+          ? 999
+          : now.difference(_lastSlowPetAt!).inMilliseconds;
+      final isSlowStroke = distance >= 3 && distance <= 16 && elapsedMs >= 260;
+      if (!isSlowStroke) return;
+
+      _lastSlowPetAt = now;
+      final seCalmo = await context.read<PetCubit>().registrarCariciaCalmar();
+      if (!mounted) return;
+
+      final id = DateTime.now().microsecondsSinceEpoch;
+      setState(
+        () => _corazones.add(_Corazon(id: id, posicion: details.globalPosition)),
+      );
+      Future.delayed(const Duration(milliseconds: 900), () {
+        if (mounted) setState(() => _corazones.removeWhere((c) => c.id == id));
+      });
+
+      if (seCalmo) {
+        setState(() => _petAlignment = const Alignment(-0.5, 0.55));
+      }
+      return;
+    }
+
     final puedeAcariciarParaDormir =
         mascota?.estadoDescanso == 'acostado' &&
-        (_esNoche || mascota?.tipoDescanso == 'siesta');
+        (_esNocheJuego || mascota?.tipoDescanso == 'siesta');
     if (!puedeAcariciarParaDormir) return;
     if (details.delta.distance <= 3) return;
 
@@ -282,8 +354,12 @@ class _DormirScreenState extends State<DormirScreen>
 
     // Tap sobre mascota despierta → calmar rebelde
     if (!esDormida && !esSiesta) {
-      if (state.estadoMision == 'perro_rebelde' ||
-          state.estadoMision == 'rebelde_escapado') {
+      if (state.estadoMision == 'perro_rebelde') {
+        _moverPetRebelde();
+        _mostrarMensajeBloqueo('Acariciala despacio para calmarla');
+        return;
+      }
+      if (state.estadoMision == 'rebelde_escapado') {
         await context.read<PetCubit>().registrarTapCalmar();
       }
       return;
@@ -334,7 +410,31 @@ class _DormirScreenState extends State<DormirScreen>
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
 
-    return Scaffold(
+    return BlocListener<PetCubit, PetState>(
+      listenWhen: (previous, current) =>
+          previous.estadoMision != current.estadoMision,
+      listener: (context, state) async {
+        if (state.estadoMision == 'perro_rebelde') {
+          _timerAcostar?.cancel();
+          if (mounted) {
+            setState(() => _progresoAcostar = 0);
+          }
+          _lastSlowPetAt = null;
+          _moverPetRebelde();
+          return;
+        }
+        if (state.estadoMision == 'rebelde_escapado') {
+          _timerAcostar?.cancel();
+          if (mounted) {
+            setState(() => _progresoAcostar = 0);
+          }
+          await _moveEscapedPetToHome();
+        }
+        if (mounted) {
+          setState(() => _petAlignment = const Alignment(-0.5, 0.55));
+        }
+      },
+      child: Scaffold(
       floatingActionButton: FloatingActionButton(
         onPressed: () => mostrarMapaHuella(context),
         backgroundColor: AppColors.verdeFondo,
@@ -389,6 +489,7 @@ class _DormirScreenState extends State<DormirScreen>
           ),
         ),
       ),
+      ),
     );
   }
 
@@ -403,6 +504,7 @@ class _DormirScreenState extends State<DormirScreen>
         final h = constraints.maxHeight;
         final size = Size(w, h);
         final worldState = context.watch<PetWorldCubit>().state;
+        final petState = context.watch<PetCubit>().state;
         final canShowPet =
             !worldState.isLocationLocked ||
             worldState.location == PetLocation.dormir;
@@ -496,20 +598,22 @@ class _DormirScreenState extends State<DormirScreen>
               ),
             ),
             // Cama
-            if (canShowPet)
-              Positioned(
-                bottom: h * 0.18,
-                right: w * 0.06,
-                child: _buildCama(),
-              ),
+            Positioned(
+              bottom: h * 0.10,
+              right: w * 0.06,
+              child: _buildCama(),
+            ),
             // Mascota
             if (canShowPet) _buildMascota(size),
             // Corazones
             if (canShowPet) ..._corazones.map(_buildCorazon),
             // Barra de acostar
-            if (canShowPet && _progresoAcostar > 0) _buildBarraAcostar(),
+            if (canShowPet &&
+                petState.estadoMision != 'perro_rebelde' &&
+                _progresoAcostar > 0)
+              _buildBarraAcostar(),
             // Indicador contextual
-            if (canShowPet) _buildIndicador(),
+            _buildIndicador(),
             // Banner persistente de dormido
             if (canShowPet)
               BlocBuilder<PetCubit, PetState>(
@@ -669,78 +773,16 @@ class _DormirScreenState extends State<DormirScreen>
       onLongPressStart: _onBedLongPressStart,
       onLongPressEnd: _onBedLongPressEnd,
       child: SizedBox(
-        width: 150,
-        height: 80,
-        child: Stack(
-          alignment: Alignment.bottomCenter,
-          children: [
-            // Base
-            Container(
-              width: 140,
-              height: 65,
-              decoration: BoxDecoration(
-                color: const Color(0xFF5E35B1),
-                borderRadius: BorderRadius.circular(35),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Colors.black38,
-                    blurRadius: 8,
-                    offset: Offset(0, 6),
-                  ),
-                ],
-              ),
-            ),
-            // Sombra interna
-            Positioned(
-              top: 20,
-              child: Container(
-                width: 120,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF311B92),
-                  borderRadius: BorderRadius.circular(25),
-                ),
-              ),
-            ),
-            // Cojín
-            Positioned(
-              top: 23,
-              child: Container(
-                width: 110,
-                height: 35,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFB39DDB),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Center(
-                  child: Icon(
-                    Icons.pets,
-                    color: Colors.white.withValues(alpha: 0.3),
-                    size: 20,
-                  ),
-                ),
-              ),
-            ),
-            // Borde frontal 3D
-            Positioned(
-              bottom: 0,
-              child: Container(
-                width: 140,
-                height: 25,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF512DA8),
-                  borderRadius: BorderRadius.only(
-                    bottomLeft: Radius.circular(35),
-                    bottomRight: Radius.circular(35),
-                  ),
-                ),
-              ),
-            ),
-          ],
+        width: 170,
+        height: 110,
+        child: SvgPicture.asset(
+          'assets/images/cama_vectorized.svg',
+          fit: BoxFit.contain,
         ),
       ),
     );
   }
+
 
   Widget _buildEstadoCortinasChip() {
     return BlocBuilder<PetCubit, PetState>(
@@ -777,10 +819,6 @@ class _DormirScreenState extends State<DormirScreen>
         final descanso = mascota?.estadoDescanso ?? 'despierto';
         final mision = state.estadoMision;
 
-        final rawEmoji = (mascota?.tipoMascota ?? 'perro') == 'gato'
-            ? '\u{1F431}'
-            : '\u{1F436}';
-        final petEmoji = descanso == 'dormido' ? '\u{1F634}' : rawEmoji;
 
         final enCama =
             descanso == 'acostado' ||
@@ -811,7 +849,19 @@ class _DormirScreenState extends State<DormirScreen>
                 alignment: Alignment.topCenter,
                 children: [
                   enCama
-                      ? Text(petEmoji, style: const TextStyle(fontSize: 90))
+                      ? Transform.translate(
+                          offset: const Offset(24, 32),
+                          child: SizedBox(
+                            width: 150,
+                            height: 110,
+                            child: SvgPicture.asset(
+                              (mascota?.tipoMascota ?? 'gato') == 'perro'
+                                  ? 'assets/images/perro_acostado_vectorized.svg'
+                                  : 'assets/images/gato_modo_siesta_vectorized.svg',
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                        )
                       : PetAvatarRive(
                           tipoMascota: mascota?.tipoMascota ?? 'gato',
                           width: 190,
@@ -846,6 +896,14 @@ class _DormirScreenState extends State<DormirScreen>
                         state.tapsDespertar,
                         mascota?.tapsParaDespetarBase ?? 4,
                       ),
+                    ),
+
+                  if (mision == 'perro_rebelde' && state.tapsCalmar > 0)
+                    Positioned(
+                      bottom: -18,
+                      left: -10,
+                      right: -10,
+                      child: _buildBarraCalma(state.tapsCalmar, 4),
                     ),
                 ],
               ),
@@ -921,6 +979,27 @@ class _DormirScreenState extends State<DormirScreen>
     );
   }
 
+  Widget _buildBarraCalma(int hechas, int total) {
+    return Column(
+      children: [
+        Text(
+          'Caricias suaves $hechas/$total',
+          style: const TextStyle(color: Colors.white70, fontSize: 9),
+        ),
+        const SizedBox(height: 2),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: LinearProgressIndicator(
+            value: total > 0 ? hechas / total : 0,
+            backgroundColor: Colors.white24,
+            valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFF8A65)),
+            minHeight: 8,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildBarraAcostar() {
     return Positioned(
       bottom: 40,
@@ -960,12 +1039,12 @@ class _DormirScreenState extends State<DormirScreen>
 
         final texto = switch (mision) {
           'perro_rebelde' =>
-            'No quiere acostarse.\nTocala varias veces para calmarla.',
+            'No quiere acostarse.\nAcariciala despacio para calmarla.',
           'rebelde_escapado' =>
-            'Se escapo.\nBuscala en otras pantallas y calmala.',
+            'Se escapo.\nBuscala en otras pantallas y acariciala despacio para calmarla.',
           _ => switch (descanso) {
             'despierto' =>
-              _esNoche
+              _esNocheJuego
                   ? 'Manten presionada la cama para acostarla.'
                   : (mascota?.cortinasAbiertas ?? true)
                   ? 'Toca la ventana para cerrar cortinas,\ny luego manten presionada la cama.'

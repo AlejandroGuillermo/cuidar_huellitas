@@ -7,6 +7,9 @@ class PendingDisaster {
   final PetLocation location;
   final String emoji;
   final int quantity;
+  final int initialQuantity;
+  final String? missionId;
+  final String? origin;
 
   const PendingDisaster({
     required this.id,
@@ -14,5 +17,8 @@ class PendingDisaster {
     required this.location,
     required this.emoji,
     required this.quantity,
+    required this.initialQuantity,
+    this.missionId,
+    this.origin,
   });
 }

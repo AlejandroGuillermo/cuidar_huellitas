@@ -81,7 +81,11 @@ flutter:
     - assets/images/Celular.png
     - assets/images/Logo.png
     - assets/images/gato_comiendo_vectorized.svg
+    - assets/images/perro_comiendo_vectorized.svg
     - assets/images/plato_vectorized.svg
+    - assets/images/cama_vectorized.svg
+    - assets/images/gato_modo_siesta_vectorized.svg
+    - assets/images/perro_acostado_vectorized.svg
     - assets/images/banar/
 
   # To add assets to your application, add an assets section, like this:

@@ -28,7 +28,6 @@ import 'data/repositories/progreso_repository.dart';
 import 'data/repositories/world_repository.dart';
 import 'domain/entities/pending_mission.dart';
 import 'domain/enums/pet_activity.dart';
-import 'domain/enums/mission_kind.dart';
 import 'domain/enums/pet_location.dart';
 import 'firebase_options.dart';
 
@@ -105,230 +104,264 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ],
-      child: MultiBlocListener(
-        listeners: [
-          BlocListener<PetCubit, PetState>(
-            listenWhen: (previous, current) =>
-                previous.mascota?.idMascota != current.mascota?.idMascota,
-            listener: (context, state) async {
-              final mascota = state.mascota;
-              if (mascota == null) {
-                await NotificationService.instance.cancelCareReminder();
-                return;
-              }
-              final petCubit = context.read<PetCubit>();
-              final petWorldCubit = context.read<PetWorldCubit>();
-              final missionCubit = context.read<MissionCubit>();
-              final disasterCubit = context.read<DisasterCubit>();
+      child: const _AppLifecycleScope(),
+    );
+  }
+}
 
-              await petWorldCubit.bootstrap(mascota, randomizeIfUnlocked: true);
+class _AppLifecycleScope extends StatefulWidget {
+  const _AppLifecycleScope();
 
-              final world = petWorldCubit.state;
-              final currentPet = petCubit.state.mascota;
-              if (currentPet != null &&
-                  world.isLocationLocked &&
-                  world.location == PetLocation.alimentar &&
-                  currentPet.nivelPlato > 0 &&
-                  !currentPet.platoComiendo) {
-                await petCubit.iniciarComidaPlato();
-              }
-              if (currentPet != null &&
-                  world.isLocationLocked &&
-                  world.location == PetLocation.dormir &&
-                  !currentPet.estaDescansando) {
-                await petCubit.forzarDescansoOffline(siesta: world.isNapTime);
-              }
+  @override
+  State<_AppLifecycleScope> createState() => _AppLifecycleScopeState();
+}
 
-              await missionCubit.hydrate(mascota.idMascota);
-              await disasterCubit.verificarDesastre(mascota.idMascota);
-              await NotificationService.instance
-                  .requestPermissionsOncePerSession();
-              await NotificationService.instance
-                  .rescheduleCareReminderForCurrentUser();
-            },
-          ),
-          BlocListener<PetCubit, PetState>(
-            listenWhen: (previous, current) {
-              final wasActive = previous.mascota?.anomaliaDetectada ?? false;
-              final isActive = current.mascota?.anomaliaDetectada ?? false;
-              return !wasActive && isActive;
-            },
-            listener: (context, state) {
-              final messenger = _messengerKey.currentState;
-              messenger?.hideCurrentSnackBar();
-              messenger?.showSnackBar(
-                const SnackBar(
-                  content: Text('Tu mascota necesita cuidado ahora.'),
-                  duration: Duration(seconds: 4),
-                ),
-              );
-            },
-          ),
-          BlocListener<PetCubit, PetState>(
-            listenWhen: (previous, current) =>
-                previous.mascota?.estadoDescanso !=
-                current.mascota?.estadoDescanso,
-            listener: (context, state) async {
-              final mascota = state.mascota;
-              if (mascota == null) return;
+class _AppLifecycleScopeState extends State<_AppLifecycleScope>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
 
-              final petWorldCubit = context.read<PetWorldCubit>();
-              final estaDormida =
-                  mascota.estadoDescanso == 'dormido' ||
-                  mascota.estadoDescanso == 'siesta';
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
-              if (estaDormida) {
-                await petWorldCubit.updateWorld(
-                  mascota: mascota,
-                  next: petWorldCubit.state.copyWith(
-                    location: PetLocation.dormir,
-                    activity: PetActivity.sleeping,
-                    isLocationLocked: true,
-                    isNapTime: mascota.estadoDescanso == 'siesta',
-                    clearFood: true,
-                    clearToy: true,
-                    simulatedAt: DateTime.now(),
-                  ),
-                );
-                return;
-              }
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      context.read<PetCubit>().handleAppResumed();
+    }
+  }
 
-              if (petWorldCubit.state.isLocationLocked &&
-                  petWorldCubit.state.location == PetLocation.dormir) {
-                await petWorldCubit.updateWorld(
-                  mascota: mascota,
-                  next: petWorldCubit.state.copyWith(
-                    location: PetLocation.dormir,
-                    activity: PetActivity.idle,
-                    isLocationLocked: false,
-                    isNapTime: false,
-                    clearFood: true,
-                    clearToy: true,
-                    simulatedAt: DateTime.now(),
-                  ),
-                );
-              }
-            },
-          ),
-          BlocListener<PetCubit, PetState>(
-            listenWhen: (previous, current) =>
-                previous.mascota?.platoComiendo !=
-                    current.mascota?.platoComiendo ||
-                previous.mascota?.nivelPlato != current.mascota?.nivelPlato,
-            listener: (context, state) async {
-              final mascota = state.mascota;
-              if (mascota == null) return;
+  @override
+  Widget build(BuildContext context) {
+    return MultiBlocListener(
+      listeners: [
+        BlocListener<PetCubit, PetState>(
+          listenWhen: (previous, current) =>
+              previous.mascota?.idMascota != current.mascota?.idMascota,
+          listener: (context, state) async {
+            final mascota = state.mascota;
+            if (mascota == null) {
+              await NotificationService.instance.cancelCareReminder();
+              return;
+            }
+            final petCubit = context.read<PetCubit>();
+            final petWorldCubit = context.read<PetWorldCubit>();
+            final missionCubit = context.read<MissionCubit>();
+            final disasterCubit = context.read<DisasterCubit>();
 
-              final petWorldCubit = context.read<PetWorldCubit>();
-              if (petWorldCubit.state.isLoading) return;
+            await petWorldCubit.bootstrap(mascota, randomizeIfUnlocked: true);
 
-              if (mascota.platoComiendo && mascota.nivelPlato > 0) {
-                await petWorldCubit.updateWorld(
-                  mascota: mascota,
-                  next: petWorldCubit.state.copyWith(
-                    location: PetLocation.alimentar,
-                    activity: PetActivity.eating,
-                    currentFoodId: mascota.platoAlimentoId.isNotEmpty
-                        ? mascota.platoAlimentoId
-                        : petWorldCubit.state.currentFoodId,
-                    isLocationLocked: true,
-                    isNapTime: false,
-                    clearToy: true,
-                    simulatedAt: DateTime.now(),
-                  ),
-                );
-                return;
-              }
+            final world = petWorldCubit.state;
+            final currentPet = petCubit.state.mascota;
+            if (currentPet != null &&
+                world.isLocationLocked &&
+                world.location == PetLocation.alimentar &&
+                currentPet.nivelPlato > 0 &&
+                !currentPet.platoComiendo) {
+              await petCubit.iniciarComidaPlato();
+            }
+            if (currentPet != null &&
+                world.isLocationLocked &&
+                world.location == PetLocation.dormir &&
+                !currentPet.estaDescansando) {
+              await petCubit.forzarDescansoOffline(siesta: world.isNapTime);
+            }
 
-              if (petWorldCubit.state.isLocationLocked &&
-                  petWorldCubit.state.location == PetLocation.alimentar) {
-                await petWorldCubit.updateWorld(
-                  mascota: mascota,
-                  next: petWorldCubit.state.copyWith(
-                    activity: PetActivity.idle,
-                    isLocationLocked: false,
-                    isNapTime: false,
-                    clearFood: true,
-                    simulatedAt: DateTime.now(),
-                  ),
-                );
-              }
-            },
-          ),
-          BlocListener<MissionCubit, MissionState>(
-            listenWhen: (previous, current) =>
-                previous.missions != current.missions ||
-                previous.hasLoadedOnce != current.hasLoadedOnce,
-            listener: (context, state) {
-              if (!state.hasLoadedOnce) {
-                _missionNotificationsReady = false;
-                _knownMissionIds = <String>{};
-                return;
-              }
-
-              final currentIds = state.missions.map((m) => m.id).toSet();
-              if (!_missionNotificationsReady) {
-                _knownMissionIds = currentIds;
-                _missionNotificationsReady = true;
-                return;
-              }
-
-              final nuevas = state.missions
-                  .where((mission) => !_knownMissionIds.contains(mission.id))
-                  .toList();
-              _knownMissionIds = currentIds;
-              if (nuevas.isEmpty) return;
-
-              final message = nuevas.length == 1
-                  ? 'Nueva mision: ${_missionTitle(nuevas.first)}'
-                  : 'Tienes ${nuevas.length} misiones nuevas';
-
-              final messenger = _messengerKey.currentState;
-              messenger?.hideCurrentSnackBar();
-              messenger?.showSnackBar(
-                SnackBar(
-                  content: Text(message),
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-            },
-          ),
-        ],
-        child: MaterialApp.router(
-          title: 'CuidARHuellitas',
-          debugShowCheckedModeBanner: false,
-          scaffoldMessengerKey: _messengerKey,
-          theme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: const Color(0xFF8AE670),
-            ),
-            fontFamily: 'Nunito',
-          ),
-          routerConfig: appRouter,
-          builder: (context, child) {
-            return ValueListenableBuilder(
-              valueListenable: appRouter.routeInformationProvider,
-              builder: (context, routeInfo, _) {
-                final currentPath = routeInfo.uri.path;
-                final shouldShowDisasterOverlay = _shouldShowDisasterOverlay(
-                  currentPath,
-                );
-
-                if (!shouldShowDisasterOverlay || child == null) {
-                  return child ?? const SizedBox.shrink();
-                }
-
-                final mascotaId =
-                    context.watch<PetCubit>().state.mascota?.idMascota ?? '';
-                return DisasterOverlay(
-                  mascotaId: mascotaId,
-                  currentPath: currentPath,
-                  child: child,
-                );
-              },
+            await missionCubit.hydrate(mascota.idMascota);
+            await disasterCubit.verificarDesastre(mascota.idMascota);
+            await NotificationService.instance
+                .requestPermissionsOncePerSession();
+            await NotificationService.instance
+                .rescheduleCareReminderForCurrentUser();
+          },
+        ),
+        BlocListener<PetCubit, PetState>(
+          listenWhen: (previous, current) {
+            final wasActive = previous.mascota?.anomaliaDetectada ?? false;
+            final isActive = current.mascota?.anomaliaDetectada ?? false;
+            return !wasActive && isActive;
+          },
+          listener: (context, state) {
+            final messenger = MyApp._messengerKey.currentState;
+            messenger?.hideCurrentSnackBar();
+            messenger?.showSnackBar(
+              const SnackBar(
+                content: Text('Tu mascota necesita cuidado ahora.'),
+                duration: Duration(seconds: 4),
+              ),
             );
           },
         ),
+        BlocListener<PetCubit, PetState>(
+          listenWhen: (previous, current) =>
+              previous.mascota?.estadoDescanso !=
+              current.mascota?.estadoDescanso,
+          listener: (context, state) async {
+            final mascota = state.mascota;
+            if (mascota == null) return;
+
+            final petWorldCubit = context.read<PetWorldCubit>();
+            final estaDormida =
+                mascota.estadoDescanso == 'dormido' ||
+                mascota.estadoDescanso == 'siesta';
+
+            if (estaDormida) {
+              await petWorldCubit.updateWorld(
+                mascota: mascota,
+                next: petWorldCubit.state.copyWith(
+                  location: PetLocation.dormir,
+                  activity: PetActivity.sleeping,
+                  isLocationLocked: true,
+                  isNapTime: mascota.estadoDescanso == 'siesta',
+                  clearFood: true,
+                  clearToy: true,
+                  simulatedAt: DateTime.now(),
+                ),
+              );
+              return;
+            }
+
+            if (petWorldCubit.state.isLocationLocked &&
+                petWorldCubit.state.location == PetLocation.dormir) {
+              await petWorldCubit.updateWorld(
+                mascota: mascota,
+                next: petWorldCubit.state.copyWith(
+                  location: PetLocation.dormir,
+                  activity: PetActivity.idle,
+                  isLocationLocked: false,
+                  isNapTime: false,
+                  clearFood: true,
+                  clearToy: true,
+                  simulatedAt: DateTime.now(),
+                ),
+              );
+            }
+          },
+        ),
+        BlocListener<PetCubit, PetState>(
+          listenWhen: (previous, current) =>
+              previous.mascota?.platoComiendo !=
+                  current.mascota?.platoComiendo ||
+              previous.mascota?.nivelPlato != current.mascota?.nivelPlato,
+          listener: (context, state) async {
+            final mascota = state.mascota;
+            if (mascota == null) return;
+
+            final petWorldCubit = context.read<PetWorldCubit>();
+            if (petWorldCubit.state.isLoading) return;
+
+            if (mascota.platoComiendo && mascota.nivelPlato > 0) {
+              await petWorldCubit.updateWorld(
+                mascota: mascota,
+                next: petWorldCubit.state.copyWith(
+                  location: PetLocation.alimentar,
+                  activity: PetActivity.eating,
+                  currentFoodId: mascota.platoAlimentoId.isNotEmpty
+                      ? mascota.platoAlimentoId
+                      : petWorldCubit.state.currentFoodId,
+                  isLocationLocked: true,
+                  isNapTime: false,
+                  clearToy: true,
+                  simulatedAt: DateTime.now(),
+                ),
+              );
+              return;
+            }
+
+            if (petWorldCubit.state.isLocationLocked &&
+                petWorldCubit.state.location == PetLocation.alimentar) {
+              await petWorldCubit.updateWorld(
+                mascota: mascota,
+                next: petWorldCubit.state.copyWith(
+                  activity: PetActivity.idle,
+                  isLocationLocked: false,
+                  isNapTime: false,
+                  clearFood: true,
+                  simulatedAt: DateTime.now(),
+                ),
+              );
+            }
+          },
+        ),
+        BlocListener<MissionCubit, MissionState>(
+          listenWhen: (previous, current) =>
+              previous.missions != current.missions ||
+              previous.hasLoadedOnce != current.hasLoadedOnce,
+          listener: (context, state) {
+            if (!state.hasLoadedOnce) {
+              MyApp._missionNotificationsReady = false;
+              MyApp._knownMissionIds = <String>{};
+              return;
+            }
+
+            final currentIds = state.missions.map((m) => m.id).toSet();
+            if (!MyApp._missionNotificationsReady) {
+              MyApp._knownMissionIds = currentIds;
+              MyApp._missionNotificationsReady = true;
+              return;
+            }
+
+            final nuevas = state.missions
+                .where(
+                  (mission) => !MyApp._knownMissionIds.contains(mission.id),
+                )
+                .toList();
+            MyApp._knownMissionIds = currentIds;
+            if (nuevas.isEmpty) return;
+
+            final message = nuevas.length == 1
+                ? 'Nueva mision: ${_missionTitle(nuevas.first)}'
+                : 'Tienes ${nuevas.length} misiones nuevas';
+
+            final messenger = MyApp._messengerKey.currentState;
+            messenger?.hideCurrentSnackBar();
+            messenger?.showSnackBar(
+              SnackBar(
+                content: Text(message),
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          },
+        ),
+      ],
+      child: MaterialApp.router(
+        title: 'CuidARHuellitas',
+        debugShowCheckedModeBanner: false,
+        scaffoldMessengerKey: MyApp._messengerKey,
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF8AE670)),
+          fontFamily: 'Nunito',
+        ),
+        routerConfig: appRouter,
+        builder: (context, child) {
+          return ValueListenableBuilder(
+            valueListenable: appRouter.routeInformationProvider,
+            builder: (context, routeInfo, _) {
+              final currentPath = routeInfo.uri.path;
+              final shouldShowDisasterOverlay = _shouldShowDisasterOverlay(
+                currentPath,
+              );
+
+              if (!shouldShowDisasterOverlay || child == null) {
+                return child ?? const SizedBox.shrink();
+              }
+
+              final mascotaId =
+                  context.watch<PetCubit>().state.mascota?.idMascota ?? '';
+              return DisasterOverlay(
+                mascotaId: mascotaId,
+                currentPath: currentPath,
+                child: child,
+              );
+            },
+          );
+        },
       ),
     );
   }
@@ -341,15 +374,6 @@ class MyApp extends StatelessWidget {
   }
 
   static String _missionTitle(PendingMission mission) {
-    switch (mission.kind) {
-      case MissionKind.recogerComida:
-        return 'Recoge la comida tirada';
-      case MissionKind.recogerJuguete:
-        return 'Recoge los juguetes';
-      case MissionKind.recogerBasura:
-        return 'Limpia la basura';
-      case MissionKind.desconocida:
-        return 'Nueva mision activa';
-    }
+    return mission.title;
   }
 }

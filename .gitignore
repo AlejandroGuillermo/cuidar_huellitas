@@ -12,6 +12,13 @@
 .swiftpm/
 migrate_working_dir/
 
+# Archivos temporales de Flutter/Dart
+.tmp_appdata/
+.gitconfig
+
+# Dart tool
+.dart_tool/
+
 # IntelliJ related
 *.iml
 *.ipr

@@ -8,15 +8,30 @@ class PendingMissionModel {
   static PendingMission fromFirestore(String id, Map<String, dynamic> data) {
     final rawType =
         (data['tipo'] as String?) ?? (data['id_mision'] as String?) ?? '';
+    final kind = _kindFromString(rawType);
     final rewardCoins = (data['reward_coins'] as num?)?.toInt() ?? 0;
+    final urgency = (data['urgencia'] as num?)?.toInt();
 
     return PendingMission(
       id: id,
-      kind: _kindFromString(rawType),
-      location: _locationFromKind(_kindFromString(rawType)),
+      kind: kind,
+      location: _locationFromData(
+        kind,
+        (data['pantalla_principal'] as String?) ?? (data['pantalla'] as String?),
+      ),
       status: (data['estado'] as String?) ?? 'pendiente',
       relatedItemId: data['emoji'] as String?,
       rewardCoins: rewardCoins > 0 ? rewardCoins : _defaultRewardCoins,
+      backendTitle: data['titulo'] as String?,
+      backendDescription: data['descripcion'] as String?,
+      urgency: urgency,
+      rawType: rawType,
+      bathUrgency: data['urgencia_bano'] as String?,
+      targetCount: (data['cantidad_objetivo'] as num?)?.toInt(),
+      rewardClaimed: (data['reward_claimed'] as bool?) ?? false,
+      primaryScreen:
+          (data['pantalla_principal'] as String?) ?? (data['pantalla'] as String?),
+      origin: data['origen_residuo'] as String?,
     );
   }
 
@@ -24,8 +39,28 @@ class PendingMissionModel {
     final normalized = value.toLowerCase();
     if (normalized.contains('comida')) return MissionKind.recogerComida;
     if (normalized.contains('juguete')) return MissionKind.recogerJuguete;
-    if (normalized.contains('basura')) return MissionKind.recogerBasura;
+    if (normalized.contains('basura') || normalized.contains('residuo')) {
+      return MissionKind.recogerBasura;
+    }
     return MissionKind.desconocida;
+  }
+
+  static PetLocation _locationFromData(MissionKind kind, String? screen) {
+    switch (screen) {
+      case 'alimentar':
+        return PetLocation.alimentar;
+      case 'jugar':
+        return PetLocation.jugar;
+      case 'dormir':
+        return PetLocation.dormir;
+      case 'curar':
+        return PetLocation.curar;
+      case 'banar':
+        return PetLocation.banar;
+      case 'home':
+        return PetLocation.home;
+    }
+    return _locationFromKind(kind);
   }
 
   static PetLocation _locationFromKind(MissionKind kind) {

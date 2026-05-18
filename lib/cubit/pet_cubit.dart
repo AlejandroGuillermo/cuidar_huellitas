@@ -19,11 +19,13 @@ import '../data/repositories/ai_state_repository.dart';
 import '../data/repositories/inventory_repository.dart';
 import '../data/repositories/mission_repository.dart';
 import '../data/repositories/pet_repository.dart';
+import '../data/repositories/user_repository.dart';
 
 class PetCubit extends Cubit<PetState> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final InventoryRepository _inventoryRepository = InventoryRepository();
+  final UserRepository _userRepository = UserRepository();
   final PetRepository _petRepository;
   final PetAiEngine _petAiEngine;
   final RoutineAnalyzer? _routineAnalyzer;
@@ -31,9 +33,12 @@ class PetCubit extends Cubit<PetState> {
   final MissionRepository? _missionRepository;
   final Random _random = Random();
   Timer? _deterioroTimer;
+  Timer? _descansoTimer;
   Timer? _platoComidaTimer;
+  String? _botiquinError;
 
   static const Duration _deterioroIntervalo = Duration(minutes: 30);
+  static const Duration _descansoIntervalo = Duration(seconds: 30);
   static const Duration _platoPasoIntervalo = Duration(seconds: 6);
   static const int _maxTicksPlatoAusencia = 48; // 24h maximo
   static const int _maxTicksAusencia = 48; // 24 horas maximo
@@ -45,10 +50,16 @@ class PetCubit extends Cubit<PetState> {
   static const int _defaultMissionRewardCoins = 5;
   static const int _jugarSuciedadBase = 4;
   static const String _bathMissionId = 'mision_bano';
+  static const String _residueMissionId = 'limpiar_residuos';
   static const int _bathMissionThreshold = 50;
   static const int _bathMissionUrgentThreshold = 25;
+  static const int _slowPetCalmTarget = 4;
+  static const int _residueHungerThreshold = 40;
+  static const int _residueMinCount = 3;
 
   DisasterCubit? disasterCubit;
+
+  String? get botiquinError => _botiquinError;
 
   PetCubit({
     required PetAiEngine petAiEngine,
@@ -101,18 +112,24 @@ class PetCubit extends Cubit<PetState> {
         } else {
           await calcularDeterieroAusencia();
         }
+        _sincronizarDescansoOnline();
         final comioOffline = await sincronizarPlatoOffline();
         await _evaluarMisionRecogerComidaOffline(comioOffline);
+        if (state.mascota case final actual?) {
+          await _evaluarMisionResiduos(actual);
+        }
         _iniciarComidaPlatoOnlineSiAplica();
         await disasterCubit?.verificarDesastre(mascota.idMascota);
       } else {
         _detenerDeterioroOnline();
+        _detenerDescansoOnline();
         _detenerComidaPlatoOnline();
         emit(state.copyWith(clearMascota: true, isLoading: false));
       }
     } catch (e) {
       debugPrint('Error cargarMascota: $e');
       _detenerDeterioroOnline();
+      _detenerDescansoOnline();
       _detenerComidaPlatoOnline();
       emit(state.copyWith(clearMascota: true, isLoading: false));
     }
@@ -261,16 +278,25 @@ class PetCubit extends Cubit<PetState> {
         // No obedece
         emit(state.copyWith(estadoMision: 'perro_rebelde'));
         if (personalidad == PersonalidadTipo.travieso) {
-          await disasterCubit?.generarDesastre(
+          await disasterCubit?.generarDesastreDistribuido(
             mascotaId: mascota.idMascota,
             tipo: DisasterType.basura,
-            emoji: 'ðŸ’¨',
-            cantidad: 3,
+            emoji: '\u{1F5D1}\u{FE0F}',
+            cantidadPorPantalla: const <String, int>{
+              disasterScreenDormir: 2,
+              disasterScreenHome: 1,
+            },
           );
           await _aplicarSuciedadPorDesastre(
             _puntosSuciedadPorDesastre(DisasterType.basura),
             accion: 'desastre_rebeldia',
-            extras: {'tipo_desastre': DisasterType.basura.name},
+            extras: {
+              'tipo_desastre': DisasterType.basura.name,
+              'pantallas_desastre': <String>[
+                disasterScreenDormir,
+                disasterScreenHome,
+              ],
+            },
           );
           return 'rebelde_escapado';
         }
@@ -318,6 +344,7 @@ class PetCubit extends Cubit<PetState> {
         tapsDespertar: 0,
       ),
     );
+    _sincronizarDescansoOnline();
 
     await _guardarDescansoEnFirestore(antes: mascota, despues: despues);
 
@@ -366,6 +393,7 @@ class PetCubit extends Cubit<PetState> {
     );
 
     emit(state.copyWith(mascota: despues));
+    _sincronizarDescansoOnline();
     await _guardarDescansoEnFirestore(antes: mascota, despues: despues);
   }
 
@@ -436,6 +464,7 @@ class PetCubit extends Cubit<PetState> {
     );
 
     emit(state.copyWith(mascota: despues));
+    _sincronizarDescansoOnline();
 
     // Guardar en Firestore solo cada 4 ticks (~2 min) para no saturar
     if (_random.nextInt(4) == 0 || lleg100) {
@@ -453,6 +482,7 @@ class PetCubit extends Cubit<PetState> {
       }
       await _sincronizarMisionBano(despues);
     }
+    await _evaluarMisionResiduos(despues);
   }
 
   // â”€â”€ Tap para despertar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -513,6 +543,7 @@ class PetCubit extends Cubit<PetState> {
         estadoMision: 'ninguna',
       ),
     );
+    _sincronizarDescansoOnline();
 
     await _guardarDescansoEnFirestore(antes: mascota, despues: despues);
     await _guardarEnFirestore(
@@ -537,11 +568,14 @@ class PetCubit extends Cubit<PetState> {
 
     if (personalidad == PersonalidadTipo.travieso) {
       // Escapa a otra pantalla
-      disasterCubit?.generarDesastre(
+      disasterCubit?.generarDesastreDistribuido(
         mascotaId: mascota.idMascota,
         tipo: DisasterType.basura,
-        emoji: 'ðŸ’¨',
-        cantidad: 2,
+        emoji: '🗑️',
+        cantidadPorPantalla: const <String, int>{
+          disasterScreenDormir: 1,
+          disasterScreenHome: 1,
+        },
       );
       unawaited(
         _aplicarSuciedadPorDesastre(
@@ -561,6 +595,7 @@ class PetCubit extends Cubit<PetState> {
       clearInicioDescanso: true,
     );
     emit(state.copyWith(mascota: despues));
+    _sincronizarDescansoOnline();
   }
 
   // â”€â”€ Calmar rebelde (taps) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -580,6 +615,38 @@ class PetCubit extends Cubit<PetState> {
       }
       return true;
     }
+    return false;
+  }
+
+  Future<bool> registrarCariciaCalmar() async {
+    final mascota = state.mascota;
+    if (mascota == null) return false;
+
+    final nuevasCaricias = (state.tapsCalmar + 1).clamp(0, _slowPetCalmTarget);
+    final despues = mascota.copyWith(
+      nivelAfecto: (mascota.nivelAfecto + 1).clamp(0, 100),
+      ultimaInteraccion: DateTime.now(),
+    );
+
+    emit(
+      state.copyWith(
+        mascota: despues,
+        tapsCalmar: nuevasCaricias,
+      ),
+    );
+
+    await _guardarEnFirestore(
+      antes: mascota,
+      despues: despues,
+      accion: 'calmar_con_caricia',
+      extras: {'puntos_afecto': 1, 'progreso_calma': nuevasCaricias},
+    );
+
+    if (nuevasCaricias >= _slowPetCalmTarget) {
+      emit(state.copyWith(estadoMision: 'ninguna', tapsCalmar: 0));
+      return true;
+    }
+
     return false;
   }
 
@@ -633,6 +700,7 @@ class PetCubit extends Cubit<PetState> {
     );
 
     emit(state.copyWith(mascota: despues));
+    _sincronizarDescansoOnline();
     await _guardarDescansoEnFirestore(antes: mascota, despues: despues);
   }
 
@@ -660,7 +728,18 @@ class PetCubit extends Cubit<PetState> {
         tapsDespertar: 0,
       ),
     );
+    _sincronizarDescansoOnline();
     await _guardarDescansoEnFirestore(antes: mascota, despues: despues);
+  }
+
+  Future<void> handleAppResumed() async {
+    final mascota = state.mascota;
+    if (mascota == null) return;
+
+    if (mascota.estaDescansando) {
+      await calcularRecuperacionOffline();
+    }
+    _sincronizarDescansoOnline();
   }
 
   Future<bool> equiparItemCabeza(String itemId) async {
@@ -830,7 +909,11 @@ class PetCubit extends Cubit<PetState> {
     if (mascota == null) return;
 
     final misionId = _misionRecogerComidaPorRasgo(mascota.rasgo);
-    await _crearMisionActiva(misionId ?? 'recoger_comida', mascota.idMascota);
+    await _crearMisionActiva(
+      misionId ?? 'recoger_comida',
+      mascota.idMascota,
+      targetCount: 5,
+    );
 
     await disasterCubit?.generarDesastre(
       mascotaId: mascota.idMascota,
@@ -1020,6 +1103,8 @@ class PetCubit extends Cubit<PetState> {
     switch (misionId) {
       case _bathMissionId:
         return 15;
+      case _residueMissionId:
+        return 10;
       case 'travieso_recoger_comida':
       case 'jugueton_recoger_comida':
       case 'recoger_comida':
@@ -1033,6 +1118,8 @@ class PetCubit extends Cubit<PetState> {
     switch (misionId) {
       case _bathMissionId:
         return 'bano';
+      case _residueMissionId:
+        return 'limpiar_residuos';
       case 'travieso_recoger_comida':
       case 'jugueton_recoger_comida':
       case 'recoger_comida':
@@ -1061,6 +1148,343 @@ class PetCubit extends Cubit<PetState> {
     return resultado;
   }
 
+  Future<void> _evaluarMisionResiduos(MascotaModel mascota) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+
+    if (mascota.nivelHambre <= _residueHungerThreshold) {
+      final needsReset =
+          mascota.residuosHambreAltaDesde != null ||
+          mascota.residuosObjetivoMinutos != null;
+      if (needsReset) {
+        final actualizado = mascota.copyWith(
+          clearResiduosHambreAltaDesde: true,
+          clearResiduosObjetivoMinutos: true,
+        );
+        await _persistirEstadoResiduos(actualizado);
+      }
+      return;
+    }
+
+    final profile = await _analizarPatronLimpiezaResiduos(userId, mascota);
+    final mode = _resolverModoResiduos(mascota, profile);
+    final now = DateTime.now();
+
+    var actualizada = mascota;
+    var changed = false;
+    if (actualizada.residuosHambreAltaDesde == null) {
+      actualizada = actualizada.copyWith(
+        residuosHambreAltaDesde:
+            actualizada.ultimaComida ??
+            actualizada.ultimaInteraccion,
+      );
+      changed = true;
+    }
+    if (actualizada.residuosObjetivoMinutos == null) {
+      actualizada = actualizada.copyWith(
+        residuosObjetivoMinutos: _randomResidueTargetMinutes(
+          mode,
+          actualizada.residuosMismaComidaStreak,
+        ),
+      );
+      changed = true;
+    }
+    if (changed) {
+      await _persistirEstadoResiduos(actualizada);
+    }
+
+    final start = actualizada.residuosHambreAltaDesde;
+    final targetMinutes = actualizada.residuosObjetivoMinutos;
+    if (start == null || targetMinutes == null) return;
+    if (now.difference(start).inMinutes < targetMinutes) return;
+    if (await _tieneMisionResiduosAbierta(mascota.idMascota)) return;
+
+    final quantity = _cantidadResiduosParaModo(
+      mode,
+      now.difference(start),
+      actualizada.residuosMismaComidaStreak,
+    );
+    final distribution = _distribucionResiduosParaModo(mode, quantity);
+    final primaryScreen = _pantallaPrincipal(distribution);
+    final title = 'Limpiar residuos';
+    final description = _descripcionResiduos(mode);
+
+    await _crearMisionActiva(
+      _residueMissionId,
+      mascota.idMascota,
+      targetCount: quantity,
+      extras: {
+        'titulo': title,
+        'descripcion': description,
+        'tipo': 'limpiar_residuos',
+        'categoria': 'limpieza',
+        'pantalla_principal': primaryScreen,
+        'pantallas_afectadas': distribution.keys.toList(),
+        'origen_residuo': mode,
+        'hambre_minima_requerida': _residueHungerThreshold,
+      },
+    );
+
+    await disasterCubit?.generarDesastreDistribuido(
+      mascotaId: mascota.idMascota,
+      tipo: DisasterType.basura,
+      emoji: '\u{1F5D1}\u{FE0F}',
+      cantidadPorPantalla: distribution,
+      missionId: _residueMissionId,
+      residueOrigin: mode,
+    );
+    await _aplicarSuciedadPorDesastre(
+      (quantity * 2).clamp(6, 16),
+      accion: 'desastre_residuos',
+      extras: {
+        'tipo_desastre': DisasterType.basura.name,
+        'cantidad_desastre': quantity,
+        'origen_residuo': mode,
+        'pantalla_principal': primaryScreen,
+      },
+    );
+
+    final rearme = actualizada.copyWith(
+      residuosUltimaGeneracion: now,
+      residuosHambreAltaDesde: now,
+      residuosObjetivoMinutos: _randomResidueTargetMinutes(
+        mode,
+        actualizada.residuosMismaComidaStreak,
+      ),
+    );
+    await _persistirEstadoResiduos(rearme);
+  }
+
+  Future<_ResidueAiProfile> _analizarPatronLimpiezaResiduos(
+    String userId,
+    MascotaModel mascota,
+  ) async {
+    if (mascota.anomaliaActiva) {
+      return const _ResidueAiProfile(aiReady: false, cleanConstant: false);
+    }
+
+    final snap = await _firestore
+        .collection('usuarios')
+        .doc(userId)
+        .collection('mascotas')
+        .doc(mascota.idMascota)
+        .collection('progreso')
+        .orderBy('fecha_actualizacion', descending: true)
+        .limit(12)
+        .get();
+    if (snap.docs.length < 6) {
+      return const _ResidueAiProfile(aiReady: false, cleanConstant: false);
+    }
+
+    var limpiezaTotal = 0;
+    var muestrasLimpieza = 0;
+    var banos = 0;
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      final accion = (data['accion_realizada'] as String?) ?? '';
+      if (accion == 'banar') {
+        banos++;
+      }
+      final estadoDespues =
+          (data['estado_despues'] as Map<String, dynamic>?) ??
+          const <String, dynamic>{};
+      final limpieza = estadoDespues['limpieza'];
+      if (limpieza is num) {
+        limpiezaTotal += limpieza.toInt();
+        muestrasLimpieza++;
+      }
+    }
+    if (muestrasLimpieza == 0) {
+      return const _ResidueAiProfile(aiReady: false, cleanConstant: false);
+    }
+
+    final promedio = limpiezaTotal / muestrasLimpieza;
+    final aiReady = promedio >= 60 || banos >= 2;
+    final cleanConstant = promedio >= 78 && banos >= 1;
+    return _ResidueAiProfile(aiReady: aiReady, cleanConstant: cleanConstant);
+  }
+
+  String _resolverModoResiduos(
+    MascotaModel mascota,
+    _ResidueAiProfile profile,
+  ) {
+    final repeatedFood = mascota.personalidad == PersonalidadTipo.delicado &&
+        mascota.residuosMismaComidaStreak >= 3;
+    if (repeatedFood) return 'delicado';
+    if (!profile.aiReady || mascota.anomaliaActiva) return 'general';
+    return profile.cleanConstant ? 'ia_clean' : 'ia_dirty';
+  }
+
+  int _randomResidueTargetMinutes(String mode, int repeatStreak) {
+    switch (mode) {
+      case 'delicado':
+        return 35 + _random.nextInt(repeatStreak >= 5 ? 26 : 41);
+      case 'ia_clean':
+        return 150 + _random.nextInt(121);
+      case 'ia_dirty':
+        return 90 + _random.nextInt(91);
+      default:
+        return 75 + _random.nextInt(106);
+    }
+  }
+
+  int _cantidadResiduosParaModo(
+    String mode,
+    Duration elapsed,
+    int repeatStreak,
+  ) {
+    if (mode == 'delicado') {
+      return repeatStreak >= 5 || elapsed.inHours >= 2 ? 7 : 5;
+    }
+    if (mode == 'ia_clean') {
+      return 3 + _random.nextInt(2);
+    }
+    if (mode == 'ia_dirty') {
+      return elapsed.inHours >= 3 ? 6 + _random.nextInt(2) : 4 + _random.nextInt(2);
+    }
+    if (elapsed.inHours < 2) return _residueMinCount;
+    if (elapsed.inHours < 4) return 4 + _random.nextInt(2);
+    return 6 + _random.nextInt(2);
+  }
+
+  Map<String, int> _distribucionResiduosParaModo(String mode, int total) {
+    switch (mode) {
+      case 'ia_clean':
+        return <String, int>{disasterScreenBanar: total};
+      case 'ia_dirty':
+        return _distribuirCantidadEnPantallas(
+          total,
+          const <String>[
+            disasterScreenAlimentar,
+            disasterScreenHome,
+            disasterScreenDormir,
+          ],
+          minimumScreens: total >= 5 ? 2 : 1,
+        );
+      case 'delicado':
+        return _distribuirCantidadEnPantallas(
+          total,
+          const <String>[
+            disasterScreenAlimentar,
+            disasterScreenHome,
+            disasterScreenDormir,
+            disasterScreenBanar,
+          ],
+          minimumScreens: total >= 7 ? 3 : 2,
+        );
+      default:
+        return <String, int>{disasterScreenHome: total};
+    }
+  }
+
+  Map<String, int> _distribuirCantidadEnPantallas(
+    int total,
+    List<String> screens, {
+    required int minimumScreens,
+  }) {
+    final maxScreens = min(total, screens.length);
+    final selectedCount = minimumScreens.clamp(1, maxScreens);
+    final shuffled = List<String>.from(screens)..shuffle(_random);
+    final selected = shuffled.take(selectedCount).toList();
+    final result = <String, int>{for (final screen in selected) screen: 1};
+    var remaining = total - selected.length;
+    while (remaining > 0) {
+      final screen = selected[_random.nextInt(selected.length)];
+      result[screen] = (result[screen] ?? 0) + 1;
+      remaining--;
+    }
+    return result;
+  }
+
+  String _pantallaPrincipal(Map<String, int> distribution) {
+    var selected = disasterScreenHome;
+    var maxCount = -1;
+    distribution.forEach((screen, amount) {
+      if (amount > maxCount) {
+        selected = screen;
+        maxCount = amount;
+      }
+    });
+    return selected;
+  }
+
+  String _descripcionResiduos(String mode) {
+    switch (mode) {
+      case 'ia_clean':
+        return 'La IA detecto pequenos residuos en el area de bano. Recogelos para mantener su rutina impecable.';
+      case 'ia_dirty':
+        return 'La IA detecto acumulacion de residuos en varias pantallas. Limpialos cuanto antes.';
+      case 'delicado':
+        return 'Tu mascota delicada dejo residuos por su sensibilidad digestiva. Recogelos en todas las areas indicadas.';
+      default:
+        return 'Han aparecido residuos en casa. Recogelos para mantener limpio el entorno de tu mascota.';
+    }
+  }
+
+  Future<bool> _tieneMisionResiduosAbierta(String mascotaId) async {
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return false;
+
+    final snap = await _firestore
+        .collection('usuarios')
+        .doc(userId)
+        .collection('mascotas')
+        .doc(mascotaId)
+        .collection('misiones_activas')
+        .doc(_residueMissionId)
+        .get();
+    if (!snap.exists) return false;
+
+    final data = snap.data() ?? <String, dynamic>{};
+    final status = (data['estado'] as String?) ?? 'pendiente';
+    final rewardClaimed = (data['reward_claimed'] as bool?) ?? false;
+    return status == 'pendiente' || (status == 'completada' && !rewardClaimed);
+  }
+
+  Future<void> _persistirEstadoResiduos(MascotaModel mascota) async {
+    final current = state.mascota;
+    if (current?.idMascota == mascota.idMascota && current != null) {
+      emit(
+        state.copyWith(
+          mascota: current.copyWith(
+            residuosHambreAltaDesde: mascota.residuosHambreAltaDesde,
+            clearResiduosHambreAltaDesde:
+                mascota.residuosHambreAltaDesde == null,
+            residuosObjetivoMinutos: mascota.residuosObjetivoMinutos,
+            clearResiduosObjetivoMinutos:
+                mascota.residuosObjetivoMinutos == null,
+            residuosUltimaGeneracion: mascota.residuosUltimaGeneracion,
+            clearResiduosUltimaGeneracion:
+                mascota.residuosUltimaGeneracion == null,
+            ultimoAlimentoConsumidoId: mascota.ultimoAlimentoConsumidoId,
+            clearUltimoAlimentoConsumidoId:
+                mascota.ultimoAlimentoConsumidoId.isEmpty,
+            residuosMismaComidaStreak: mascota.residuosMismaComidaStreak,
+          ),
+        ),
+      );
+    }
+
+    final userId = _auth.currentUser?.uid;
+    if (userId == null) return;
+    await _firestore
+        .collection('usuarios')
+        .doc(userId)
+        .collection('mascotas')
+        .doc(mascota.idMascota)
+        .set({
+          'residuos_hambre_alta_desde': mascota.residuosHambreAltaDesde != null
+              ? Timestamp.fromDate(mascota.residuosHambreAltaDesde!)
+              : null,
+          'residuos_objetivo_minutos': mascota.residuosObjetivoMinutos,
+          'residuos_ultima_generacion': mascota.residuosUltimaGeneracion != null
+              ? Timestamp.fromDate(mascota.residuosUltimaGeneracion!)
+              : null,
+          'ultimo_alimento_consumido_id': mascota.ultimoAlimentoConsumidoId,
+          'residuos_misma_comida_streak': mascota.residuosMismaComidaStreak,
+        }, SetOptions(merge: true));
+  }
+
   Future<void> _evaluarMisionRecogerComidaOffline(bool comioOffline) async {
     final mascota = state.mascota;
     if (mascota == null || !comioOffline) return;
@@ -1071,12 +1495,16 @@ class PetCubit extends Cubit<PetState> {
     final misionId = _misionRecogerComidaPorRasgo(mascota.rasgo);
     if (misionId == null) return;
 
-    await _crearMisionActiva(misionId, mascota.idMascota);
+    await _crearMisionActiva(
+      misionId,
+      mascota.idMascota,
+      targetCount: 5,
+    );
 
     const piezas = 5;
     final emojiComida = mascota.platoEmoji.isNotEmpty
         ? mascota.platoEmoji
-        : 'Ã°Å¸Ââ€“';
+        : '\u{1F356}';
 
     if (mascota.personalidad == PersonalidadTipo.travieso) {
       await disasterCubit?.generarDesastreDistribuido(
@@ -1122,14 +1550,36 @@ class PetCubit extends Cubit<PetState> {
     });
   }
 
+  void _iniciarDescansoOnline() {
+    _descansoTimer?.cancel();
+    _descansoTimer = Timer.periodic(_descansoIntervalo, (_) async {
+      await tickDescanso();
+    });
+  }
+
   void _detenerDeterioroOnline() {
     _deterioroTimer?.cancel();
     _deterioroTimer = null;
   }
 
+  void _detenerDescansoOnline() {
+    _descansoTimer?.cancel();
+    _descansoTimer = null;
+  }
+
+  void _sincronizarDescansoOnline() {
+    final mascota = state.mascota;
+    if (mascota?.estaDescansando ?? false) {
+      _iniciarDescansoOnline();
+      return;
+    }
+    _detenerDescansoOnline();
+  }
+
   @override
   Future<void> close() {
     _detenerDeterioroOnline();
+    _detenerDescansoOnline();
     _detenerComidaPlatoOnline();
     return super.close();
   }
@@ -1202,6 +1652,7 @@ class PetCubit extends Cubit<PetState> {
             : null,
         'plato_comiendo': despues.platoComiendo,
         'ticks_energia_baja': despues.ticksEnergiaBaja,
+        'inventario_botiquin': despues.inventarioBotiquin,
         'ultima_interaccion': Timestamp.now(),
         'deterioro_acelerado': despues.deterioroAcelerado,
         'anomalia_detectada': despues.anomaliaDetectada,
@@ -1275,6 +1726,8 @@ class PetCubit extends Cubit<PetState> {
     String misionId,
     String mascotaId, {
     int? urgencia,
+    int? targetCount,
+    Map<String, dynamic>? extras,
   }) async {
     final userId = _auth.currentUser?.uid;
     if (userId == null) return;
@@ -1286,6 +1739,7 @@ class PetCubit extends Cubit<PetState> {
         'estado': 'pendiente',
         'fecha_asignada': Timestamp.now(),
         'fecha_completada': null,
+        'reward_claimed': false,
         'streak': 0,
       };
       if (tipo != null) {
@@ -1296,6 +1750,12 @@ class PetCubit extends Cubit<PetState> {
       }
       if (urgencia != null) {
         data['urgencia'] = urgencia;
+      }
+      if (targetCount != null && targetCount > 0) {
+        data['cantidad_objetivo'] = targetCount;
+      }
+      if (extras != null && extras.isNotEmpty) {
+        data.addAll(extras);
       }
 
       await _firestore
@@ -1320,10 +1780,10 @@ class PetCubit extends Cubit<PetState> {
 
     final esUrgente = nivelLimpieza < _bathMissionUrgentThreshold;
     final rewardCoins = esUrgente ? 30 : 15;
-    final titulo = esUrgente ? 'BaÃ±o urgente' : 'BaÃ±o necesario';
+    final titulo = esUrgente ? 'Bano urgente' : 'Bano necesario';
     final descripcion = esUrgente
-        ? 'Tu mascota esta muy sucia. Dale un baÃ±o completo cuanto antes.'
-        : 'Tu mascota necesita un baÃ±o para recuperar su limpieza.';
+        ? 'Tu mascota esta muy sucia. Dale un bano completo cuanto antes.'
+        : 'Tu mascota necesita un bano para recuperar su limpieza.';
 
     try {
       await _firestore
@@ -1344,6 +1804,7 @@ class PetCubit extends Cubit<PetState> {
             'estado': 'pendiente',
             'fecha_asignada': Timestamp.now(),
             'fecha_completada': null,
+            'reward_claimed': false,
             'streak': 0,
             'reward_coins': rewardCoins,
             'nivel_limpieza_inicial': nivelLimpieza,
@@ -1403,7 +1864,7 @@ class PetCubit extends Cubit<PetState> {
           await disasterCubit!.generarDesastre(
             mascotaId: mascota.idMascota,
             tipo: DisasterType.values.byName(r.desastreTipo!),
-            emoji: r.desastreEmoji ?? 'ðŸ–',
+            emoji: r.desastreEmoji ?? '\u{1F356}',
             cantidad: r.desastreCantidad,
           );
           await _aplicarSuciedadPorDesastre(
@@ -1478,6 +1939,12 @@ class PetCubit extends Cubit<PetState> {
     if (antes == null) return;
     final config = PersonalityRegistry.get(antes.rasgo);
     final mod = config?.acciones;
+    final consumedFoodId = antes.platoAlimentoId;
+    final sameFoodStreak = consumedFoodId.isNotEmpty
+        ? (consumedFoodId == antes.ultimoAlimentoConsumidoId
+              ? antes.residuosMismaComidaStreak + 1
+              : 1)
+        : antes.residuosMismaComidaStreak;
     final despues = antes.copyWith(
       nivelHambre:
           (antes.nivelHambre + (puntosBase * (mod?.alimentarHambre ?? 1.0)))
@@ -1497,6 +1964,8 @@ class PetCubit extends Cubit<PetState> {
               .clamp(0, 100),
       ultimaInteraccion: DateTime.now(),
       ultimaComida: DateTime.now(),
+      ultimoAlimentoConsumidoId: consumedFoodId.isEmpty ? null : consumedFoodId,
+      residuosMismaComidaStreak: sameFoodStreak,
     );
 
     emit(state.copyWith(mascota: despues));
@@ -1505,10 +1974,15 @@ class PetCubit extends Cubit<PetState> {
       antes: antes,
       despues: despues,
       accion: 'alimentar',
-      extras: {'emoji_alimento': emojiAlimento ?? ''},
+      extras: {
+        'emoji_alimento': emojiAlimento ?? '',
+        'alimento_id': consumedFoodId,
+        'residuos_misma_comida_streak': sameFoodStreak,
+      },
     );
     await _reprogramarRecordatorioCuidado();
     await _verificarReacciones(despues);
+    await _evaluarMisionResiduos(despues);
   }
 
   Future<void> jugar({
@@ -1563,6 +2037,7 @@ class PetCubit extends Cubit<PetState> {
     await _sincronizarMisionBano(despues);
     await _reprogramarRecordatorioCuidado();
     await _verificarReacciones(despues);
+    await _evaluarMisionResiduos(despues);
   }
 
   Future<void> banar() async {
@@ -1596,6 +2071,7 @@ class PetCubit extends Cubit<PetState> {
     await _completarMisionBano(despues);
     await _reprogramarRecordatorioCuidado();
     await _verificarReacciones(despues);
+    await _evaluarMisionResiduos(despues);
   }
 
   Future<void> aumentarLimpieza(
@@ -1620,6 +2096,7 @@ class PetCubit extends Cubit<PetState> {
     await _sincronizarMisionBano(despues);
     await _reprogramarRecordatorioCuidado();
     await _verificarReacciones(despues);
+    await _evaluarMisionResiduos(despues);
   }
 
   Future<void> aumentarAfecto(
@@ -1679,6 +2156,195 @@ class PetCubit extends Cubit<PetState> {
     await _guardarEnFirestore(antes: antes, despues: despues, accion: 'curar');
     await _reprogramarRecordatorioCuidado();
     await _verificarReacciones(despues);
+    await _evaluarMisionResiduos(despues);
+  }
+
+  Future<void> usarItemBotiquin(String tipoItem) async {
+    final antes = state.mascota;
+    if (antes == null) return;
+
+    final inventario = Map<String, int>.from(antes.runtime.inventarioBotiquin);
+    final stockActual = inventario[tipoItem] ?? 0;
+    if (stockActual <= 0) {
+      _botiquinError = 'sin_stock';
+      emit(state.copyWith());
+      return;
+    }
+
+    final config = PersonalityRegistry.get(antes.rasgo)?.acciones;
+    final ahora = DateTime.now();
+
+    switch (tipoItem) {
+      case 'venda':
+        final ultimaCuracion = antes.ultimaCuracion;
+        final cooldownCumplido =
+            ultimaCuracion == null ||
+            ahora.difference(ultimaCuracion) >= const Duration(hours: 2);
+        if (!cooldownCumplido) {
+          _botiquinError = 'cooldown_activo';
+          emit(state.copyWith());
+          return;
+        }
+        break;
+      case 'suero':
+        final condicion =
+            antes.nivelEnergia < 40 ||
+            antes.nivelHambre < 40 ||
+            antes.ticksEnergiaBaja >= 1;
+        if (!condicion) {
+          _botiquinError = 'condicion_no_cumplida';
+          emit(state.copyWith());
+          return;
+        }
+        break;
+      case 'aroma':
+        final condicion =
+            antes.nivelAfecto < 40 ||
+            antes.nivelLimpieza < 40 ||
+            antes.anomaliaActiva;
+        if (!condicion) {
+          _botiquinError = 'condicion_no_cumplida';
+          emit(state.copyWith());
+          return;
+        }
+        break;
+      default:
+        _botiquinError = 'condicion_no_cumplida';
+        emit(state.copyWith());
+        return;
+    }
+
+    final inventarioActualizado = Map<String, int>.from(inventario)
+      ..[tipoItem] = stockActual - 1;
+
+    late final MascotaModel despues;
+    switch (tipoItem) {
+      case 'venda':
+        final salud =
+            30.0 * (1 + ((config?.vendaSalud ?? 0).toDouble()));
+        final afecto =
+            5.0 * (1 + ((config?.vendaAfecto ?? 0).toDouble()));
+        despues = antes.copyWith(
+          stats: antes.stats.copyWith(
+            nivelSalud: (antes.stats.nivelSalud + salud).clamp(0.0, 100.0),
+            nivelAfecto: (antes.stats.nivelAfecto + afecto).clamp(0.0, 100.0),
+          ),
+          runtime: antes.runtime.copyWith(
+            ultimaCuracion: ahora,
+            ultimaInteraccion: ahora,
+            inventarioBotiquin: inventarioActualizado,
+          ),
+        );
+        break;
+      case 'suero':
+        final energia =
+            25.0 * (1 + ((config?.sueroEnergia ?? 0).toDouble()));
+        final hambre =
+            20.0 * (1 + ((config?.sueroHambre ?? 0).toDouble()));
+        final salud =
+            5.0 * (1 + ((config?.sueroSalud ?? 0).toDouble()));
+        despues = antes.copyWith(
+          stats: antes.stats.copyWith(
+            nivelEnergia:
+                (antes.stats.nivelEnergia + energia).clamp(0.0, 100.0),
+            nivelHambre:
+                (antes.stats.nivelHambre + hambre).clamp(0.0, 100.0),
+            nivelSalud: (antes.stats.nivelSalud + salud).clamp(0.0, 100.0),
+          ),
+          runtime: antes.runtime.copyWith(
+            ticksEnergiaBaja:
+                (antes.stats.nivelEnergia + energia) >= _umbralEnergiaBaja
+                ? 0
+                : antes.ticksEnergiaBaja,
+            ultimaInteraccion: ahora,
+            inventarioBotiquin: inventarioActualizado,
+          ),
+        );
+        break;
+      case 'aroma':
+        final afecto =
+            25.0 * (1 + ((config?.aromaAfecto ?? 0).toDouble()));
+        final limpieza =
+            15.0 * (1 + ((config?.aromaLimpieza ?? 0).toDouble()));
+        final salud =
+            5.0 * (1 + ((config?.aromaSalud ?? 0).toDouble()));
+        despues = antes.copyWith(
+          stats: antes.stats.copyWith(
+            nivelAfecto: (antes.stats.nivelAfecto + afecto).clamp(0.0, 100.0),
+            nivelLimpieza:
+                (antes.stats.nivelLimpieza + limpieza).clamp(0.0, 100.0),
+            nivelSalud: (antes.stats.nivelSalud + salud).clamp(0.0, 100.0),
+          ),
+          runtime: antes.runtime.copyWith(
+            ultimaInteraccion: ahora,
+            inventarioBotiquin: inventarioActualizado,
+          ),
+        );
+        break;
+      default:
+        return;
+    }
+
+    _botiquinError = null;
+    emit(state.copyWith(mascota: despues));
+    await _guardarEnFirestore(
+      antes: antes,
+      despues: despues,
+      accion: 'botiquin_$tipoItem',
+      extras: {'stock_restante': inventarioActualizado[tipoItem] ?? 0},
+    );
+    await _reprogramarRecordatorioCuidado();
+    await _verificarReacciones(despues);
+    await _evaluarMisionResiduos(despues);
+  }
+
+  Future<String?> comprarItemBotiquin(
+    String tipoItem, {
+    required int costo,
+    int cantidad = 1,
+  }) async {
+    final antes = state.mascota;
+    final userId = _auth.currentUser?.uid;
+    if (antes == null || userId == null) {
+      return 'No hay mascota activa';
+    }
+    if (cantidad <= 0 || costo < 0) {
+      return 'Compra no valida';
+    }
+    if (tipoItem != 'venda' && tipoItem != 'suero' && tipoItem != 'aroma') {
+      return 'Item no valido';
+    }
+
+    final monedasActuales = await _userRepository.loadCoins(userId, fallback: 0);
+    if (monedasActuales < costo) {
+      return 'No tienes monedas suficientes';
+    }
+
+    final inventarioActualizado = Map<String, int>.from(antes.inventarioBotiquin);
+    inventarioActualizado[tipoItem] =
+        (inventarioActualizado[tipoItem] ?? 0) + cantidad;
+    final despues = antes.copyWith(
+      runtime: antes.runtime.copyWith(inventarioBotiquin: inventarioActualizado),
+    );
+    final monedasRestantes = (monedasActuales - costo).clamp(0, 999999).toInt();
+
+    emit(state.copyWith(mascota: despues));
+
+    final userRef = _firestore.collection('usuarios').doc(userId);
+    final mascotaRef = userRef.collection('mascotas').doc(antes.idMascota);
+    final batch = _firestore.batch();
+    batch.set(userRef, {
+      'monedas': monedasRestantes,
+      'updated_at': FieldValue.serverTimestamp(),
+      'totalScore': FieldValue.delete(),
+    }, SetOptions(merge: true));
+    batch.set(mascotaRef, {
+      'inventario_botiquin': inventarioActualizado,
+      'ultima_interaccion': Timestamp.now(),
+    }, SetOptions(merge: true));
+    await batch.commit();
+
+    return null;
   }
 
   Future<void> pasear() async {
@@ -1725,6 +2391,7 @@ class PetCubit extends Cubit<PetState> {
     await _guardarEnFirestore(antes: antes, despues: despues, accion: 'pasear');
     await _reprogramarRecordatorioCuidado();
     await _verificarReacciones(despues);
+    await _evaluarMisionResiduos(despues);
   }
 
   Future<void> aplicarDeterioro({double factorExtra = 1.0}) async {
@@ -1782,6 +2449,7 @@ class PetCubit extends Cubit<PetState> {
     await _guardarAiHistory(despues, decision);
     await _sincronizarMisionBano(despues);
     await _verificarReacciones(despues);
+    await _evaluarMisionResiduos(despues);
   }
 
   MascotaModel _calcularDeterioro(
@@ -1940,4 +2608,14 @@ class PetCubit extends Cubit<PetState> {
       debugPrint('Error guardando ai_history: $error');
     }
   }
+}
+
+class _ResidueAiProfile {
+  final bool aiReady;
+  final bool cleanConstant;
+
+  const _ResidueAiProfile({
+    required this.aiReady,
+    required this.cleanConstant,
+  });
 }

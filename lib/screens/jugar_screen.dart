@@ -8,7 +8,6 @@ import '../application/cubits/pet_world_cubit.dart';
 import '../core/app_colors.dart';
 import '../cubit/pet_cubit.dart';
 import '../cubit/pet_state.dart';
-import '../data/repositories/user_repository.dart';
 import '../domain/enums/pet_activity.dart';
 import '../domain/enums/pet_location.dart';
 import '../widgets/paw_map_widget.dart';
@@ -78,7 +77,6 @@ class _JugarScreenState extends State<JugarScreen>
     with TickerProviderStateMixin {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  final UserRepository _userRepository = UserRepository();
 
   // Lista de juguetes disponibles
   final List<Toy> toys = [
@@ -836,7 +834,6 @@ class _JugarScreenState extends State<JugarScreen>
           .get();
       final ahora = Timestamp.now();
       final batch = _firestore.batch();
-      var coinsGanadas = 0;
       var tieneCambios = false;
 
       for (final doc in pending.docs) {
@@ -844,7 +841,6 @@ class _JugarScreenState extends State<JugarScreen>
         final tipo = ((data['tipo'] as String?) ?? doc.id).toLowerCase();
         if (!tipo.contains('juguete')) continue;
 
-        coinsGanadas += ((data['reward_coins'] as num?)?.toInt() ?? 5);
         batch.update(doc.reference, {
           'estado': 'completada',
           'fecha_completada': ahora,
@@ -854,7 +850,6 @@ class _JugarScreenState extends State<JugarScreen>
 
       if (tieneCambios) {
         await batch.commit();
-        await _userRepository.addCoins(userId, coinsGanadas);
       }
     } catch (e) {
       debugPrint('Error completando mision de juguetes: $e');

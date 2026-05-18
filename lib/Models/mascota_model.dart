@@ -50,6 +50,11 @@ class MascotaModel {
     bool cortinasAbiertas = true,
     int tapsParaDespetarBase = 4,
     String? inicioDescansoTipo,
+    DateTime? residuosHambreAltaDesde,
+    int? residuosObjetivoMinutos,
+    DateTime? residuosUltimaGeneracion,
+    String? ultimoAlimentoConsumidoId,
+    int residuosMismaComidaStreak = 0,
     double? deterioroRate,
     bool anomaliaActiva = false,
     String? estadoEmocional,
@@ -95,6 +100,11 @@ class MascotaModel {
              cortinasAbiertas: cortinasAbiertas,
              tapsParaDespetarBase: tapsParaDespetarBase,
              inicioDescansoTipo: inicioDescansoTipo,
+             residuosHambreAltaDesde: residuosHambreAltaDesde,
+             residuosObjetivoMinutos: residuosObjetivoMinutos,
+             residuosUltimaGeneracion: residuosUltimaGeneracion,
+             ultimoAlimentoConsumidoId: ultimoAlimentoConsumidoId,
+             residuosMismaComidaStreak: residuosMismaComidaStreak,
            ),
        ai =
            ai ??
@@ -177,6 +187,15 @@ class MascotaModel {
     int? tapsParaDespetarBase,
     String? inicioDescansoTipo,
     bool clearInicioDescansoTipo = false,
+    DateTime? residuosHambreAltaDesde,
+    bool clearResiduosHambreAltaDesde = false,
+    int? residuosObjetivoMinutos,
+    bool clearResiduosObjetivoMinutos = false,
+    DateTime? residuosUltimaGeneracion,
+    bool clearResiduosUltimaGeneracion = false,
+    String? ultimoAlimentoConsumidoId,
+    bool clearUltimoAlimentoConsumidoId = false,
+    int? residuosMismaComidaStreak,
     double? deterioroRate,
     bool? anomaliaActiva,
     String? estadoEmocional,
@@ -230,6 +249,15 @@ class MascotaModel {
       tapsParaDespetarBase: tapsParaDespetarBase,
       inicioDescansoTipo: inicioDescansoTipo,
       clearInicioDescansoTipo: clearInicioDescansoTipo,
+      residuosHambreAltaDesde: residuosHambreAltaDesde,
+      clearResiduosHambreAltaDesde: clearResiduosHambreAltaDesde,
+      residuosObjetivoMinutos: residuosObjetivoMinutos,
+      clearResiduosObjetivoMinutos: clearResiduosObjetivoMinutos,
+      residuosUltimaGeneracion: residuosUltimaGeneracion,
+      clearResiduosUltimaGeneracion: clearResiduosUltimaGeneracion,
+      ultimoAlimentoConsumidoId: ultimoAlimentoConsumidoId,
+      clearUltimoAlimentoConsumidoId: clearUltimoAlimentoConsumidoId,
+      residuosMismaComidaStreak: residuosMismaComidaStreak,
     );
 
     final nextAi = (ai ?? this.ai).copyWith(
@@ -285,6 +313,13 @@ class MascotaModel {
   bool get cortinasAbiertas => runtime.cortinasAbiertas;
   int get tapsParaDespetarBase => runtime.tapsParaDespetarBase;
   String? get inicioDescansoTipo => runtime.inicioDescansoTipo;
+  DateTime? get residuosHambreAltaDesde => runtime.residuosHambreAltaDesde;
+  int? get residuosObjetivoMinutos => runtime.residuosObjetivoMinutos;
+  DateTime? get residuosUltimaGeneracion => runtime.residuosUltimaGeneracion;
+  Map<String, int> get inventarioBotiquin => runtime.inventarioBotiquin;
+  String get ultimoAlimentoConsumidoId =>
+      runtime.ultimoAlimentoConsumidoId ?? '';
+  int get residuosMismaComidaStreak => runtime.residuosMismaComidaStreak;
 
   double? get deterioroRate => ai.deterioroRate;
   bool get anomaliaActiva => ai.anomaliaActiva;

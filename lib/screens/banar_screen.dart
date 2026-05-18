@@ -38,9 +38,14 @@ class _BanarScreenState extends State<BanarScreen> {
   static const int _maxBathEscapes = 3;
 
   bool _applyingBathReward = false;
+  bool _bathCompletedInTub = false;
   DateTime? _lastEscapeAttemptAt;
   Timer? _bathMovementTimer;
   Timer? _bathCalmTimer;
+  Timer? _bathEscapeRoamTimer;
+  double _escapedPetOffsetX = 0;
+  double _escapedPetOffsetY = 0;
+  bool _isDisposing = false;
 
   late final BanarCubit _banarCubit;
   final Random _random = Random();
@@ -77,7 +82,8 @@ class _BanarScreenState extends State<BanarScreen> {
           enabled:
               _petInTub &&
               _canUseBathTools &&
-              (tool.label != 'Toalla' || _canUseTowel),
+              (tool.label != 'Toalla' ||
+                  (_canUseTowel && !_bathCompletedInTub)),
           resetNonce: _toolResetNonce,
           iconBuilder: (size, enabled) => _buildToolIcon(
             tool,
@@ -148,6 +154,9 @@ class _BanarScreenState extends State<BanarScreen> {
   bool get _requiresCalmingBeforeTools => _isBathDifficult;
   bool get _canUseBathTools => !_requiresCalmingBeforeTools || _petIsCalm;
   bool get _canUseTowel => _bathState.canUseTowel;
+  bool get _showEscapeHint =>
+      !_petInTub &&
+      _bathStatusMessage == 'Tu mascota se escapo de la bañera.';
 
   void _setDraggingBathTool(bool value) {
     if (!mounted) return;
@@ -156,18 +165,23 @@ class _BanarScreenState extends State<BanarScreen> {
 
   @override
   void dispose() {
+    _isDisposing = true;
     _stopBathPersonalityEffects();
+    _stopBathEscapeRoaming(resetPosition: false);
     _banarCubit.close();
     super.dispose();
   }
 
   void _meterMascotaEnLaBanera({bool resetProgress = true}) {
+    _stopBathEscapeRoaming();
+    _bathCompletedInTub = false;
     _banarCubit.enterTub(resetProgress: resetProgress);
     _startBathPersonalityEffects();
   }
 
   void _sacarMascotaDeLaBanera({bool clearStatus = false}) {
     _stopBathPersonalityEffects();
+    _bathCompletedInTub = false;
     _banarCubit.exitTub(clearStatus: clearStatus);
   }
 
@@ -186,6 +200,34 @@ class _BanarScreenState extends State<BanarScreen> {
     _bathCalmTimer?.cancel();
     _bathCalmTimer = null;
     _banarCubit.resetPersonalityEffects(resetPosition: resetPosition);
+  }
+
+  void _startBathEscapeRoaming() {
+    _stopBathEscapeRoaming(resetPosition: false);
+    _moveEscapedPetOnFloor();
+    _bathEscapeRoamTimer = Timer.periodic(
+      const Duration(milliseconds: 900),
+      (_) => _moveEscapedPetOnFloor(),
+    );
+  }
+
+  void _stopBathEscapeRoaming({bool resetPosition = true}) {
+    _bathEscapeRoamTimer?.cancel();
+    _bathEscapeRoamTimer = null;
+    if (resetPosition && mounted && !_isDisposing) {
+      setState(() {
+        _escapedPetOffsetX = 0;
+        _escapedPetOffsetY = 0;
+      });
+    }
+  }
+
+  void _moveEscapedPetOnFloor() {
+    if (!mounted || _isDisposing || _petInTub || !_showEscapeHint) return;
+    setState(() {
+      _escapedPetOffsetX = (_random.nextDouble() * 0.72) - 0.36;
+      _escapedPetOffsetY = (_random.nextDouble() * 0.16) - 0.05;
+    });
   }
 
   void _movePetInsideTub() {
@@ -218,8 +260,9 @@ class _BanarScreenState extends State<BanarScreen> {
 
     _sacarMascotaDeLaBanera();
     _banarCubit.registerEscape(
-      'Tu mascota se escapo del bano. Vuelve a meterla en la banera.',
+      'Tu mascota se escapo de la bañera.',
     );
+    _startBathEscapeRoaming();
   }
 
   int get _bathAffectionPerCalmStep {
@@ -333,7 +376,11 @@ class _BanarScreenState extends State<BanarScreen> {
   }
 
   Future<void> _dryPet(double delta) async {
-    if (!_petInTub || !_canUseBathTools || delta <= 0 || _applyingBathReward) {
+    if (!_petInTub ||
+        !_canUseBathTools ||
+        delta <= 0 ||
+        _applyingBathReward ||
+        _bathCompletedInTub) {
       return;
     }
     final result = _banarCubit.dry(
@@ -347,6 +394,7 @@ class _BanarScreenState extends State<BanarScreen> {
 
     if (result.completed) {
       _applyingBathReward = true;
+      _bathCompletedInTub = true;
     }
     _movePetInsideTub();
     _maybeTriggerBathEscape();
@@ -512,13 +560,13 @@ class _BanarScreenState extends State<BanarScreen> {
         .clamp(100.0, size.height * 0.78)
         .toDouble();
     final showBathStatus =
-        _petInTub &&
-        (_bathStatusMessage != null ||
-            _soapProgress > 0 ||
-            _scrubProgress > 0 ||
-            (_requiresCalmingBeforeTools && !_petIsCalm));
+        (_bathStatusMessage != null && !_showEscapeHint) ||
+        (_petInTub &&
+            (_soapProgress > 0 ||
+                _scrubProgress > 0 ||
+                (_requiresCalmingBeforeTools && !_petIsCalm)));
     final bathStatusBottom = (tubBottom - 54).clamp(12.0, size.height * 0.18);
-    final showProgressPanel = _petInTub && canShowPet;
+    final showProgressPanel = canShowPet && _petInTub;
 
     return BathSceneWidget(
       floorHeight: floorHeight,
@@ -733,6 +781,8 @@ class _BanarScreenState extends State<BanarScreen> {
       petInTub: _petInTub,
       canShowPet: canShowPet,
       draggingBathTool: _draggingBathTool,
+      showEscapeHint: _showEscapeHint,
+      escapeHintText: _showEscapeHint ? _bathStatusMessage : null,
       onTapTub: () {
         if (!canShowPet) {
           ScaffoldMessenger.of(context)
@@ -846,6 +896,8 @@ class _BanarScreenState extends State<BanarScreen> {
     return BathPetOnFloorWidget(
       petSize: petSize,
       tipoMascota: _tipoMascotaActual(),
+      offsetX: _escapedPetOffsetX,
+      offsetY: _escapedPetOffsetY,
     );
   }
 

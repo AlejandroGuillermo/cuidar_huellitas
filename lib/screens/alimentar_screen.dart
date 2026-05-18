@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
@@ -675,7 +675,8 @@ class _AlimentarScreenState extends State<AlimentarScreen>
             final petSize = compact ? 68.0 : 80.0;
             final hatSize = compact ? 24.0 : 28.0;
             final gap = compact ? 8.0 : 16.0;
-            final isCat = petEmoji == 'gato' || petEmoji == 'cat';
+            final isCat = _isCatType(petEmoji);
+            final isDog = _isDogType(petEmoji);
             final bubbleText = !canShowPet
                 ? 'Estoy ${_locationLabel(worldState.location)}'
                 : (_isEating ? 'Estoy comiendo' : 'Tengo hambre');
@@ -701,6 +702,7 @@ class _AlimentarScreenState extends State<AlimentarScreen>
                       compact: compact,
                       canShowPet: canShowPet,
                       isCat: isCat,
+                      isDog: isDog,
                       petEmoji: petEmoji,
                       petSize: petSize,
                       hatSize: hatSize,
@@ -767,6 +769,16 @@ class _AlimentarScreenState extends State<AlimentarScreen>
     }
   }
 
+  bool _isCatType(String petType) {
+    final normalized = petType.toLowerCase().trim();
+    return normalized == 'gato' || normalized == 'cat';
+  }
+
+  bool _isDogType(String petType) {
+    final normalized = petType.toLowerCase().trim();
+    return normalized == 'perro' || normalized == 'dog';
+  }
+
   Widget _buildPlateSvg({
     required double width,
     required double height,
@@ -784,6 +796,7 @@ class _AlimentarScreenState extends State<AlimentarScreen>
     required bool compact,
     required bool canShowPet,
     required bool isCat,
+    required bool isDog,
     required String petEmoji,
     required double petSize,
     required double hatSize,
@@ -799,6 +812,17 @@ class _AlimentarScreenState extends State<AlimentarScreen>
     final eatingCatHeight = compact ? 96.0 : 112.0;
     final eatingCatBottom = compact ? 12.0 : 14.0;
     final eatingCatRightOffset = compact ? 1.0 : 5.0;
+    final eatingDogBottom = compact ? 6.0 : 8.0;
+    final eatingDogRightOffset = compact ? 11.0 : 21.0;
+    final canShowEatingPet = _isEating && (isCat || isDog);
+    final eatingPetAsset = isCat
+        ? 'assets/images/gato_comiendo_vectorized.svg'
+        : 'assets/images/perro_comiendo_vectorized.svg';
+    final eatingPetKey = isCat ? 'pet-eating-cat' : 'pet-eating-dog';
+    final eatingPetBottom = isCat ? eatingCatBottom : eatingDogBottom;
+    final eatingPetRightOffset = isCat
+        ? eatingCatRightOffset
+        : eatingDogRightOffset;
 
     return SizedBox(
       width: sceneWidth,
@@ -859,15 +883,15 @@ class _AlimentarScreenState extends State<AlimentarScreen>
                               width: avatarWidth,
                               height: avatarHeight,
                             )
-                          : _isEating && isCat
+                          : canShowEatingPet
                           ? Stack(
-                              key: const ValueKey('pet-eating-cat'),
+                              key: ValueKey(eatingPetKey),
                               clipBehavior: Clip.none,
                               alignment: Alignment.bottomCenter,
                               children: [
                                 Positioned(
-                                  right: eatingCatRightOffset,
-                                  bottom: eatingCatBottom,
+                                  right: eatingPetRightOffset,
+                                  bottom: eatingPetBottom,
                                   child: Transform.translate(
                                     // El SVG viene unido, así que simulamos el
                                     // cabeceo de comer con un rebote vertical corto.
@@ -876,7 +900,7 @@ class _AlimentarScreenState extends State<AlimentarScreen>
                                       _petAnimationController.value * 6,
                                     ),
                                     child: SvgPicture.asset(
-                                      'assets/images/gato_comiendo_vectorized.svg',
+                                      eatingPetAsset,
                                       width: eatingCatWidth,
                                       height: eatingCatHeight,
                                       fit: BoxFit.contain,

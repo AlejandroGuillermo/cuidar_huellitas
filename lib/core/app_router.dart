@@ -234,12 +234,58 @@ final appRouter = GoRouter(
         GoRoute(
           path: AppRoutes.tienda,
           name: 'tienda',
-          builder: (context, state) => const TiendaScreen(),
+          pageBuilder: (context, state) {
+            final from = state.extra as String?;
+            final begin = from == 'retos'
+                ? const Offset(-1.0, 0.0)
+                : const Offset(1.0, 0.0);
+
+            return CustomTransitionPage(
+              key: state.pageKey,
+              child: const TiendaScreen(),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) {
+                    const end = Offset.zero;
+                    const curve = Curves.easeInOut;
+                    final tween = Tween(
+                      begin: begin,
+                      end: end,
+                    ).chain(CurveTween(curve: curve));
+                    return SlideTransition(
+                      position: animation.drive(tween),
+                      child: child,
+                    );
+                  },
+            );
+          },
         ),
         GoRoute(
           path: AppRoutes.retos,
           name: 'retos',
-          builder: (context, state) => const RetosScreen(),
+          pageBuilder: (context, state) {
+            final from = state.extra as String?;
+            final begin = from == 'tienda'
+                ? const Offset(1.0, 0.0)
+                : const Offset(1.0, 0.0);
+
+            return CustomTransitionPage(
+              key: state.pageKey,
+              child: const RetosScreen(),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) {
+                    const end = Offset.zero;
+                    const curve = Curves.easeInOut;
+                    final tween = Tween(
+                      begin: begin,
+                      end: end,
+                    ).chain(CurveTween(curve: curve));
+                    return SlideTransition(
+                      position: animation.drive(tween),
+                      child: child,
+                    );
+                  },
+            );
+          },
         ),
         GoRoute(
           path: AppRoutes.jugar,

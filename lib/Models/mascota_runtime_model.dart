@@ -27,6 +27,12 @@ class MascotaRuntimeModel {
   final bool cortinasAbiertas;
   final int tapsParaDespetarBase;
   final String? inicioDescansoTipo;
+  final DateTime? residuosHambreAltaDesde;
+  final int? residuosObjetivoMinutos;
+  final DateTime? residuosUltimaGeneracion;
+  final String? ultimoAlimentoConsumidoId;
+  final int residuosMismaComidaStreak;
+  final Map<String, int> inventarioBotiquin;
 
   const MascotaRuntimeModel({
     this.estadoDescanso = 'despierto',
@@ -55,6 +61,12 @@ class MascotaRuntimeModel {
     this.cortinasAbiertas = true,
     this.tapsParaDespetarBase = 4,
     this.inicioDescansoTipo,
+    this.residuosHambreAltaDesde,
+    this.residuosObjetivoMinutos,
+    this.residuosUltimaGeneracion,
+    this.ultimoAlimentoConsumidoId,
+    this.residuosMismaComidaStreak = 0,
+    this.inventarioBotiquin = const {'venda': 2, 'suero': 2, 'aroma': 2},
   });
 
   factory MascotaRuntimeModel.fromMap(Map<String, dynamic> data) {
@@ -90,6 +102,19 @@ class MascotaRuntimeModel {
       cortinasAbiertas: data['cortinas_abiertas'] ?? true,
       tapsParaDespetarBase: _asInt(data['taps_para_despertar'], 4),
       inicioDescansoTipo: data['inicio_descanso_tipo'],
+      residuosHambreAltaDesde: _timestampToDate(
+        data['residuos_hambre_alta_desde'],
+      ),
+      residuosObjetivoMinutos: _asNullableInt(data['residuos_objetivo_minutos']),
+      residuosUltimaGeneracion: _timestampToDate(
+        data['residuos_ultima_generacion'],
+      ),
+      ultimoAlimentoConsumidoId: data['ultimo_alimento_consumido_id'],
+      residuosMismaComidaStreak: _asInt(
+        data['residuos_misma_comida_streak'],
+        0,
+      ),
+      inventarioBotiquin: _asBotiquinMap(data['inventario_botiquin']),
     );
   }
 
@@ -137,6 +162,16 @@ class MascotaRuntimeModel {
           : null,
       'cortinas_abiertas': cortinasAbiertas,
       'taps_para_despertar': tapsParaDespetarBase,
+      'residuos_hambre_alta_desde': residuosHambreAltaDesde != null
+          ? Timestamp.fromDate(residuosHambreAltaDesde!)
+          : null,
+      'residuos_objetivo_minutos': residuosObjetivoMinutos,
+      'residuos_ultima_generacion': residuosUltimaGeneracion != null
+          ? Timestamp.fromDate(residuosUltimaGeneracion!)
+          : null,
+      'ultimo_alimento_consumido_id': ultimoAlimentoConsumidoId,
+      'residuos_misma_comida_streak': residuosMismaComidaStreak,
+      'inventario_botiquin': inventarioBotiquin,
     };
 
     if (inicioDescansoTipo != null) {
@@ -179,6 +214,16 @@ class MascotaRuntimeModel {
     int? tapsParaDespetarBase,
     String? inicioDescansoTipo,
     bool clearInicioDescansoTipo = false,
+    DateTime? residuosHambreAltaDesde,
+    bool clearResiduosHambreAltaDesde = false,
+    int? residuosObjetivoMinutos,
+    bool clearResiduosObjetivoMinutos = false,
+    DateTime? residuosUltimaGeneracion,
+    bool clearResiduosUltimaGeneracion = false,
+    String? ultimoAlimentoConsumidoId,
+    bool clearUltimoAlimentoConsumidoId = false,
+    int? residuosMismaComidaStreak,
+    Map<String, int>? inventarioBotiquin,
   }) {
     return MascotaRuntimeModel(
       estadoDescanso: estadoDescanso ?? this.estadoDescanso,
@@ -217,6 +262,21 @@ class MascotaRuntimeModel {
       inicioDescansoTipo: clearInicioDescansoTipo
           ? null
           : (inicioDescansoTipo ?? this.inicioDescansoTipo),
+      residuosHambreAltaDesde: clearResiduosHambreAltaDesde
+          ? null
+          : (residuosHambreAltaDesde ?? this.residuosHambreAltaDesde),
+      residuosObjetivoMinutos: clearResiduosObjetivoMinutos
+          ? null
+          : (residuosObjetivoMinutos ?? this.residuosObjetivoMinutos),
+      residuosUltimaGeneracion: clearResiduosUltimaGeneracion
+          ? null
+          : (residuosUltimaGeneracion ?? this.residuosUltimaGeneracion),
+      ultimoAlimentoConsumidoId: clearUltimoAlimentoConsumidoId
+          ? null
+          : (ultimoAlimentoConsumidoId ?? this.ultimoAlimentoConsumidoId),
+      residuosMismaComidaStreak:
+          residuosMismaComidaStreak ?? this.residuosMismaComidaStreak,
+      inventarioBotiquin: inventarioBotiquin ?? this.inventarioBotiquin,
     );
   }
 }
@@ -231,4 +291,23 @@ double _asDouble(dynamic value, double fallback) {
 
 int _asInt(dynamic value, int fallback) {
   return value is num ? value.toInt() : fallback;
+}
+
+int? _asNullableInt(dynamic value) {
+  return value is num ? value.toInt() : null;
+}
+
+Map<String, int> _asBotiquinMap(dynamic value) {
+  const fallback = <String, int>{'venda': 2, 'suero': 2, 'aroma': 2};
+  if (value is! Map) return fallback;
+
+  final mapped = value.cast<String, dynamic>().map(
+    (key, item) => MapEntry(key, item is num ? item.toInt() : 0),
+  );
+
+  return {
+    'venda': mapped['venda'] ?? 0,
+    'suero': mapped['suero'] ?? 0,
+    'aroma': mapped['aroma'] ?? 0,
+  };
 }

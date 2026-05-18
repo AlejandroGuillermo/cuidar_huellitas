@@ -1,4 +1,5 @@
-﻿import 'dart:async';
+import 'dart:async';
+import 'dart:math';
 import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -31,8 +32,14 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
+  static const int _slowPetCalmTarget = 4;
   String? showFeedback;
   Timer? _feedbackTimer;
+  final List<_HomeHeart> _calmHearts = <_HomeHeart>[];
+  final Random _escapeRandom = Random();
+  Alignment _escapedPetAlignment = const Alignment(0, 0.2);
+  Timer? _escapedPetTimer;
+  DateTime? _lastSlowPetAt;
 
   late final AnimationController _floatingController;
   late final Animation<double> _floatingAnimation;
@@ -162,7 +169,182 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _floatingController.dispose();
     _bounceController.dispose();
     _feedbackTimer?.cancel();
+    _escapedPetTimer?.cancel();
     super.dispose();
+  }
+
+  void _startEscapedPetRoaming() {
+    _escapedPetTimer?.cancel();
+    _moveEscapedPet();
+    _escapedPetTimer = Timer.periodic(const Duration(milliseconds: 1100), (_) {
+      _moveEscapedPet();
+    });
+  }
+
+  void _stopEscapedPetRoaming() {
+    _escapedPetTimer?.cancel();
+    _escapedPetTimer = null;
+    if (!mounted) return;
+    setState(() => _escapedPetAlignment = const Alignment(0, 0.2));
+  }
+
+  void _moveEscapedPet() {
+    if (!mounted) return;
+    setState(() {
+      _escapedPetAlignment = Alignment(
+        -0.78 + _escapeRandom.nextDouble() * 1.56,
+        -0.05 + _escapeRandom.nextDouble() * 0.95,
+      );
+    });
+  }
+
+  Future<void> _releaseEscapedPetLockIfNeeded() async {
+    if (!mounted) return;
+    final mascota = context.read<PetCubit>().state.mascota;
+    if (mascota == null) return;
+
+    final worldCubit = context.read<PetWorldCubit>();
+    final world = worldCubit.state;
+    final shouldRelease =
+        world.isLocationLocked &&
+        world.location == PetLocation.home &&
+        world.activity == PetActivity.roaming;
+    if (!shouldRelease) return;
+
+    await worldCubit.updateWorld(
+      mascota: mascota,
+      next: world.copyWith(
+        location: PetLocation.home,
+        activity: PetActivity.idle,
+        isLocationLocked: false,
+        isNapTime: false,
+        simulatedAt: DateTime.now(),
+      ),
+    );
+  }
+
+  Future<void> _onEscapedPetPanUpdate(DragUpdateDetails details) async {
+    final petState = context.read<PetCubit>().state;
+    if (petState.estadoMision != 'rebelde_escapado') return;
+
+    final now = DateTime.now();
+    final distance = details.delta.distance;
+    final elapsedMs = _lastSlowPetAt == null
+        ? 999
+        : now.difference(_lastSlowPetAt!).inMilliseconds;
+    final isSlowStroke = distance >= 3 && distance <= 16 && elapsedMs >= 260;
+    if (!isSlowStroke) return;
+
+    _lastSlowPetAt = now;
+    final calmado = await context.read<PetCubit>().registrarCariciaCalmar();
+    if (!mounted) return;
+
+    final id = DateTime.now().microsecondsSinceEpoch;
+    setState(() {
+      _calmHearts.add(_HomeHeart(id: id, position: details.globalPosition));
+    });
+    Future.delayed(const Duration(milliseconds: 900), () {
+      if (!mounted) return;
+      setState(() => _calmHearts.removeWhere((heart) => heart.id == id));
+    });
+
+    if (calmado) {
+      _stopEscapedPetRoaming();
+    }
+  }
+
+  Widget _buildEscapedPetProgress(int current, int total) {
+    final percent = total > 0 ? ((current / total) * 100).round() : 0;
+    return Container(
+      width: 170,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Calmando $percent%',
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textoPrincipal,
+            ),
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: total > 0 ? current / total : 0,
+              minHeight: 8,
+              backgroundColor: const Color(0xFFE7EAF0),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                Color(0xFFFF8A65),
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '$current/$total caricias suaves',
+            style: const TextStyle(
+              fontSize: 10,
+              color: AppColors.textoSecundario,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEscapedPetHint() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: const Text(
+        'Tu mascota se escapo. Acariciala despacio para calmarla.',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEscapeHeart(_HomeHeart heart) {
+    return Positioned(
+      left: heart.position.dx - 14,
+      top: heart.position.dy - 48,
+      child: TweenAnimationBuilder<double>(
+        key: ValueKey(heart.id),
+        tween: Tween<double>(begin: 0, end: 1),
+        duration: const Duration(milliseconds: 850),
+        builder: (context, value, child) => Opacity(
+          opacity: 1 - value,
+          child: Transform.translate(
+            offset: Offset(0, -value * 36),
+            child: const Icon(
+              Icons.favorite,
+              color: Color(0xFFFF6F91),
+              size: 28,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -171,7 +353,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       buildWhen: (previous, current) {
         return previous.isLoading != current.isLoading ||
             previous.mascota?.nombreMascota != current.mascota?.nombreMascota ||
-            previous.mascota?.itemCabezaId != current.mascota?.itemCabezaId;
+            previous.mascota?.itemCabezaId != current.mascota?.itemCabezaId ||
+            previous.estadoMision != current.estadoMision ||
+            previous.tapsCalmar != current.tapsCalmar;
       },
       builder: (context, petState) {
         final mascota = petState.mascota;
@@ -223,200 +407,273 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           mascota.itemCabezaId,
         );
 
-        return Scaffold(
-          floatingActionButton: FloatingActionButton(
-            onPressed: () => mostrarMapaHuella(context),
-            backgroundColor: AppColors.verdeFondo,
-            elevation: 8,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(30),
+        return BlocListener<PetCubit, PetState>(
+          listenWhen: (previous, current) =>
+              previous.estadoMision != current.estadoMision,
+          listener: (context, state) async {
+            if (state.estadoMision == 'rebelde_escapado') {
+              _lastSlowPetAt = null;
+              _startEscapedPetRoaming();
+              return;
+            }
+            _stopEscapedPetRoaming();
+            await _releaseEscapedPetLockIfNeeded();
+          },
+          child: Scaffold(
+            floatingActionButton: FloatingActionButton(
+              onPressed: () => mostrarMapaHuella(context),
+              backgroundColor: AppColors.verdeFondo,
+              elevation: 8,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(30),
+              ),
+              child: const Icon(
+                Icons.pets,
+                color: AppColors.azulPrincipal,
+                size: 28,
+              ),
             ),
-            child: const Icon(
-              Icons.pets,
-              color: AppColors.azulPrincipal,
-              size: 28,
-            ),
-          ),
-          body: SizedBox.expand(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onHorizontalDragEnd: (details) {
-                final velocity = details.primaryVelocity;
-                if (velocity == null) return;
-                if (velocity < 0) {
-                  context.push(AppRoutes.dormir);
-                } else if (velocity > 0) {
-                  context.goNamed(
-                    'alimentar',
-                    extra: 'home',
-                  );
-                }
-              },
-              child: Stack(
-                children: [
-                  const Positioned.fill(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            Color(0xFFA3FF88),
-                            Color(0xFF8AE670),
-                            Color(0xFFA3FF88),
-                          ],
+            body: SizedBox.expand(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onHorizontalDragEnd: (details) {
+                  final velocity = details.primaryVelocity;
+                  if (velocity == null) return;
+                  if (velocity < 0) {
+                    context.push(AppRoutes.dormir);
+                  } else if (velocity > 0) {
+                    context.goNamed(
+                      'alimentar',
+                      extra: 'home',
+                    );
+                  }
+                },
+                child: Stack(
+                  children: [
+                    const Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              Color(0xFFA3FF88),
+                              Color(0xFF8AE670),
+                              Color(0xFFA3FF88),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  Column(
-                    children: [
-                      HeaderWidget(
-                        leftContent: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerLeft,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.pets,
-                                size: 28,
-                                color: AppColors.azulPrincipal,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                mascota.nombreMascota,
-                                style: const TextStyle(
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.bold,
+                    Column(
+                      children: [
+                        HeaderWidget(
+                          leftContent: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.pets,
+                                  size: 28,
                                   color: AppColors.azulPrincipal,
                                 ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  mascota.nombreMascota,
+                                  style: const TextStyle(
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.azulPrincipal,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          rightContent: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _HeaderButton(
+                                icon: Icons.camera_alt,
+                                color: AppColors.azulPrincipal,
+                                onTap: _openArScreen,
+                              ),
+                              SizedBox(
+                                width: MediaQuery.of(context).size.width * 0.03,
+                              ),
+                              _HeaderButton(
+                                icon: Icons.menu,
+                                color: AppColors.azulPrincipal,
+                                onTap: _openProfileSheet,
                               ),
                             ],
                           ),
                         ),
-                        rightContent: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _HeaderButton(
-                              icon: Icons.camera_alt,
-                              color: AppColors.azulPrincipal,
-                              onTap: _openArScreen,
-                            ),
-                            SizedBox(
-                              width: MediaQuery.of(context).size.width * 0.03,
-                            ),
-                            _HeaderButton(
-                              icon: Icons.menu,
-                              color: AppColors.azulPrincipal,
-                              onTap: _openProfileSheet,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const _WorldSummaryCard(),
-                      Expanded(
-                        child: BlocBuilder<PetWorldCubit, PetWorldState>(
-                          builder: (context, worldState) {
-                            final canShowPet =
-                                !worldState.isLocationLocked ||
-                                worldState.location == PetLocation.home;
-                            if (!canShowPet) {
-                              return const Center(
-                                child: SizedBox(width: 1, height: 1),
-                              );
-                            }
+                        const _WorldSummaryCard(),
+                        Expanded(
+                          child: BlocBuilder<PetWorldCubit, PetWorldState>(
+                            builder: (context, worldState) {
+                              final isEscaped =
+                                  petState.estadoMision == 'rebelde_escapado';
+                              final canShowPet =
+                                  !worldState.isLocationLocked ||
+                                  worldState.location == PetLocation.home;
+                              if (!canShowPet) {
+                                return const Center(
+                                  child: SizedBox(width: 1, height: 1),
+                                );
+                              }
 
-                            return Center(
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  Positioned(
-                                    bottom: 40,
-                                    child: AnimatedBuilder(
-                                      animation: _floatingController,
-                                      builder: (context, child) {
-                                        final scale =
-                                            1.0 -
-                                            (_floatingAnimation.value.abs() /
-                                                100);
-                                        return Transform.scale(
-                                          scale: scale,
-                                          child: Container(
-                                            width: 120,
-                                            height: 24,
-                                            decoration: BoxDecoration(
-                                              color: Colors.black.withValues(
-                                                alpha: 0.15,
+                              return Center(
+                                child: isEscaped
+                                    ? SizedBox.expand(
+                                        child: Stack(
+                                          clipBehavior: Clip.none,
+                                          children: [
+                                            ..._calmHearts.map(_buildEscapeHeart),
+                                            AnimatedAlign(
+                                              duration: const Duration(
+                                                milliseconds: 850,
                                               ),
-                                              borderRadius:
-                                                  BorderRadius.circular(50),
+                                              curve: Curves.easeInOut,
+                                              alignment: _escapedPetAlignment,
+                                              child: GestureDetector(
+                                                onPanUpdate:
+                                                    _onEscapedPetPanUpdate,
+                                                child: Column(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Stack(
+                                                      clipBehavior: Clip.none,
+                                                      alignment:
+                                                          Alignment.topCenter,
+                                                      children: [
+                                                        PetAvatarRive(
+                                                          tipoMascota: petEmoji,
+                                                          width: 230,
+                                                          height: 230,
+                                                        ),
+                                                        if (headItemEmoji != null)
+                                                          Positioned(
+                                                            top: -16,
+                                                            child: Text(
+                                                              headItemEmoji,
+                                                              style: const TextStyle(
+                                                                fontSize: 42,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                      ],
+                                                    ),
+                                                    const SizedBox(height: 8),
+                                                    _buildEscapedPetProgress(
+                                                      petState.tapsCalmar,
+                                                      _slowPetCalmTarget,
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ),
+                                            Positioned(
+                                              left: 28,
+                                              right: 28,
+                                              bottom: 28,
+                                              child: _buildEscapedPetHint(),
+                                            ),
+                                          ],
+                                        ),
+                                      )
+                                    : Stack(
+                                        alignment: Alignment.center,
+                                        children: [
+                                          Positioned(
+                                            bottom: 40,
+                                            child: AnimatedBuilder(
+                                              animation: _floatingController,
+                                              builder: (context, child) {
+                                                final scale =
+                                                    1.0 -
+                                                    (_floatingAnimation.value.abs() /
+                                                        100);
+                                                return Transform.scale(
+                                                  scale: scale,
+                                                  child: Container(
+                                                    width: 120,
+                                                    height: 24,
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.black.withValues(
+                                                        alpha: 0.15,
+                                                      ),
+                                                      borderRadius:
+                                                          BorderRadius.circular(50),
+                                                    ),
+                                                  ),
+                                                );
+                                              },
                                             ),
                                           ),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                  AnimatedBuilder(
-                                    animation: Listenable.merge([
-                                      _floatingController,
-                                      _bounceController,
-                                    ]),
-                                    builder: (context, child) {
-                                      return Transform.translate(
-                                        offset: Offset(
-                                          0,
-                                          _floatingAnimation.value,
-                                        ),
-                                        child: Transform.scale(
-                                          scale: _bounceAnimation.value,
-                                          child: Stack(
-                                            clipBehavior: Clip.none,
-                                            alignment: Alignment.topCenter,
-                                            children: [
-                                              PetAvatarRive(
-                                                tipoMascota: petEmoji,
-                                                width: 260,
-                                                height: 260,
-                                              ),
-                                              if (headItemEmoji != null)
-                                                Positioned(
-                                                  top: -18,
-                                                  child: Text(
-                                                    headItemEmoji,
-                                                    style: const TextStyle(
-                                                      fontSize: 46,
-                                                    ),
+                                          AnimatedBuilder(
+                                            animation: Listenable.merge([
+                                              _floatingController,
+                                              _bounceController,
+                                            ]),
+                                            builder: (context, child) {
+                                              return Transform.translate(
+                                                offset: Offset(
+                                                  0,
+                                                  _floatingAnimation.value,
+                                                ),
+                                                child: Transform.scale(
+                                                  scale: _bounceAnimation.value,
+                                                  child: Stack(
+                                                    clipBehavior: Clip.none,
+                                                    alignment: Alignment.topCenter,
+                                                    children: [
+                                                      PetAvatarRive(
+                                                        tipoMascota: petEmoji,
+                                                        width: 260,
+                                                        height: 260,
+                                                      ),
+                                                      if (headItemEmoji != null)
+                                                        Positioned(
+                                                          top: -18,
+                                                          child: Text(
+                                                            headItemEmoji,
+                                                            style: const TextStyle(
+                                                              fontSize: 46,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      if (showFeedback != null)
+                                                        Positioned(
+                                                          top: -30,
+                                                          child: Text(
+                                                            showFeedback!,
+                                                            style: const TextStyle(
+                                                              fontSize: 16,
+                                                              fontWeight:
+                                                                  FontWeight.bold,
+                                                              color: Colors.black,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                    ],
                                                   ),
                                                 ),
-                                              if (showFeedback != null)
-                                                Positioned(
-                                                  top: -30,
-                                                  child: Text(
-                                                    showFeedback!,
-                                                    style: const TextStyle(
-                                                      fontSize: 16,
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                      color: Colors.black,
-                                                    ),
-                                                  ),
-                                                ),
-                                            ],
+                                              );
+                                            },
                                           ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
+                                        ],
+                                      ),
+                              );
+                            },
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -424,6 +681,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       },
     );
   }
+}
+
+class _HomeHeart {
+  const _HomeHeart({required this.id, required this.position});
+
+  final int id;
+  final Offset position;
 }
 
 class _WorldSummaryCard extends StatelessWidget {
@@ -585,6 +849,8 @@ class _ProfilePetsSheetState extends State<_ProfilePetsSheet> {
     'desastres_pendientes',
     'patron_rutina',
     'progreso',
+    'ai_history',
+    'world_state',
   ];
 
   late _ProfileSheetTab _tab;

@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
 import '../Models/inventario_comida_model.dart';
 import '../Models/inventario_cosmeticos_model.dart';
@@ -10,6 +11,27 @@ import '../core/food_catalog.dart';
 import '../cubit/pet_cubit.dart';
 import '../data/repositories/inventory_repository.dart';
 import '../data/repositories/user_repository.dart';
+
+const List<_BotiquinShopItem> _botiquinItems = [
+  _BotiquinShopItem(
+    id: 'venda',
+    emoji: '🩹',
+    name: 'Venda',
+    price: 18,
+  ),
+  _BotiquinShopItem(
+    id: 'suero',
+    emoji: '💉',
+    name: 'Suero',
+    price: 22,
+  ),
+  _BotiquinShopItem(
+    id: 'aroma',
+    emoji: '🌿',
+    name: 'Aromaterapia',
+    price: 16,
+  ),
+];
 
 class TiendaScreen extends StatefulWidget {
   const TiendaScreen({super.key});
@@ -31,6 +53,11 @@ class _TiendaScreenState extends State<TiendaScreen> {
   Map<String, double> _foodInventory = {};
   Map<String, bool> _foodUnlocked = {};
   Map<String, bool> _cosmeticInventory = {};
+  Map<String, int> _botiquinInventory = const {
+    'venda': 0,
+    'suero': 0,
+    'aroma': 0,
+  };
   String _equippedHeadItemId = '';
 
   @override
@@ -66,6 +93,9 @@ class _TiendaScreenState extends State<TiendaScreen> {
         _foodInventory = foodInventory.cantidades;
         _foodUnlocked = foodInventory.desbloqueados;
         _cosmeticInventory = cosmetics.poseidos;
+        _botiquinInventory =
+            context.read<PetCubit>().state.mascota?.inventarioBotiquin ??
+            const {'venda': 0, 'suero': 0, 'aroma': 0};
         _equippedHeadItemId = equippedHead;
         _isLoading = false;
       });
@@ -162,6 +192,49 @@ class _TiendaScreenState extends State<TiendaScreen> {
     }
   }
 
+  Future<void> _buyBotiquin(_BotiquinShopItem item) async {
+    if (_isBuying) return;
+    if (_coins < item.price) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No tienes monedas suficientes')),
+      );
+      return;
+    }
+
+    final petCubit = context.read<PetCubit>();
+    setState(() => _isBuying = true);
+    try {
+      final error = await petCubit.comprarItemBotiquin(
+        item.id,
+        costo: item.price,
+      );
+      if (!mounted) return;
+      if (error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error)),
+        );
+        return;
+      }
+
+      final userId = _auth.currentUser?.uid;
+      if (userId == null) return;
+      final nextCoins = await _userRepository.loadCoins(userId, fallback: _coins);
+      final nextInventory =
+          petCubit.state.mascota?.inventarioBotiquin ??
+          _botiquinInventory;
+      if (!mounted) return;
+      setState(() {
+        _coins = nextCoins;
+        _botiquinInventory = Map<String, int>.from(nextInventory);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Compraste 1 ${item.name.toLowerCase()}')),
+      );
+    } finally {
+      if (mounted) setState(() => _isBuying = false);
+    }
+  }
+
   Future<void> _equipCosmetic(CosmeticCatalogItem item) async {
     if (_isEquipping) return;
     if (!(_cosmeticInventory[item.id] ?? false)) {
@@ -208,103 +281,156 @@ class _TiendaScreenState extends State<TiendaScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      color: AppColors.fondoPrincipal,
-      child: SafeArea(
-        child: Column(
-          children: [
-            _TopHeader(
-              title: 'Tienda',
-              subtitle: 'Compra items del usuario y equipa a tu mascota',
-              coins: _coins,
-            ),
-            Expanded(
-              child: _isLoading
-                  ? const Center(child: CircularProgressIndicator())
-                  : ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                      children: [
-                        const _SectionHeader(title: 'Comida'),
-                        const SizedBox(height: 10),
-                        GridView.builder(
-                          itemCount: FoodCatalog.items.length,
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          padding: EdgeInsets.zero,
-                          gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 2,
-                                mainAxisSpacing: 12,
-                                crossAxisSpacing: 12,
-                                childAspectRatio: 0.84,
-                              ),
-                          itemBuilder: (context, index) {
-                            final item = FoodCatalog.items[index];
-                            final units = _foodInventory[item.id] ?? 0.0;
-                            final unlocked = _foodUnlocked[item.id] ?? false;
-                            return _ShopItemCard(
-                              emoji: item.emoji,
-                              name: item.name,
-                              price: item.price,
-                              stockLabel: _bagText(units),
-                              buttonLabel: unlocked
-                                  ? 'Comprar +1 bolsa'
-                                  : 'Desbloquear',
-                              loading: _isBuying,
-                              onPressed: () => _buyFood(item),
-                            );
-                          },
-                        ),
-                        const SizedBox(height: 18),
-                        const _SectionHeader(title: 'Accesorios'),
-                        const SizedBox(height: 10),
-                        GridView.builder(
-                          itemCount: CosmeticCatalog.items.length,
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          padding: EdgeInsets.zero,
-                          gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 2,
-                                mainAxisSpacing: 12,
-                                crossAxisSpacing: 12,
-                                childAspectRatio: 0.84,
-                              ),
-                          itemBuilder: (context, index) {
-                            final item = CosmeticCatalog.items[index];
-                            final owned = _cosmeticInventory[item.id] ?? false;
-                            final equipped = _equippedHeadItemId == item.id;
-                            final stockLabel = equipped
-                                ? 'En cabeza'
-                                : (owned ? 'En inventario' : 'No comprado');
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onHorizontalDragEnd: (details) {
+        final velocity = details.primaryVelocity;
+        if (velocity == null) return;
+        if (velocity < -400) {
+          context.goNamed('retos', extra: 'tienda');
+        }
+      },
+      child: ColoredBox(
+        color: AppColors.fondoPrincipal,
+        child: SafeArea(
+          child: Column(
+            children: [
+              _TopHeader(
+                title: 'Tienda',
+                subtitle: 'Compra items del usuario y equipa a tu mascota',
+                coins: _coins,
+              ),
+              Expanded(
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : ListView(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                        children: [
+                          const _SectionHeader(title: 'Comida'),
+                          const SizedBox(height: 10),
+                          GridView.builder(
+                            itemCount: FoodCatalog.items.length,
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            padding: EdgeInsets.zero,
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 2,
+                                  mainAxisSpacing: 12,
+                                  crossAxisSpacing: 12,
+                                  childAspectRatio: 0.84,
+                                ),
+                            itemBuilder: (context, index) {
+                              final item = FoodCatalog.items[index];
+                              final units = _foodInventory[item.id] ?? 0.0;
+                              final unlocked = _foodUnlocked[item.id] ?? false;
+                              return _ShopItemCard(
+                                emoji: item.emoji,
+                                name: item.name,
+                                price: item.price,
+                                stockLabel: _bagText(units),
+                                buttonLabel: unlocked
+                                    ? 'Comprar +1 bolsa'
+                                    : 'Desbloquear',
+                                loading: _isBuying,
+                                onPressed: () => _buyFood(item),
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 18),
+                          const _SectionHeader(title: 'Botiquin'),
+                          const SizedBox(height: 10),
+                          GridView.builder(
+                            itemCount: _botiquinItems.length,
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            padding: EdgeInsets.zero,
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 2,
+                                  mainAxisSpacing: 12,
+                                  crossAxisSpacing: 12,
+                                  childAspectRatio: 0.84,
+                                ),
+                            itemBuilder: (context, index) {
+                              final item = _botiquinItems[index];
+                              final stock = _botiquinInventory[item.id] ?? 0;
+                              return _ShopItemCard(
+                                emoji: item.emoji,
+                                name: item.name,
+                                price: item.price,
+                                stockLabel: 'Stock: $stock',
+                                buttonLabel: 'Comprar +1',
+                                loading: _isBuying,
+                                onPressed: () => _buyBotiquin(item),
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 18),
+                          const _SectionHeader(title: 'Accesorios'),
+                          const SizedBox(height: 10),
+                          GridView.builder(
+                            itemCount: CosmeticCatalog.items.length,
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            padding: EdgeInsets.zero,
+                            gridDelegate:
+                                const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 2,
+                                  mainAxisSpacing: 12,
+                                  crossAxisSpacing: 12,
+                                  childAspectRatio: 0.84,
+                                ),
+                            itemBuilder: (context, index) {
+                              final item = CosmeticCatalog.items[index];
+                              final owned = _cosmeticInventory[item.id] ?? false;
+                              final equipped = _equippedHeadItemId == item.id;
+                              final stockLabel = equipped
+                                  ? 'En cabeza'
+                                  : (owned ? 'En inventario' : 'No comprado');
 
-                            final label = !owned
-                                ? 'Comprar'
-                                : (equipped ? 'Quitar' : 'Poner en cabeza');
+                              final label = !owned
+                                  ? 'Comprar'
+                                  : (equipped ? 'Quitar' : 'Poner en cabeza');
 
-                            return _ShopItemCard(
-                              emoji: item.emoji,
-                              name: item.name,
-                              price: item.price,
-                              stockLabel: stockLabel,
-                              buttonLabel: label,
-                              loading: _isBuying || _isEquipping,
-                              onPressed: !owned
-                                  ? () => _buyCosmetic(item)
-                                  : (equipped
-                                        ? _removeHeadCosmetic
-                                        : () => _equipCosmetic(item)),
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-            ),
-          ],
+                              return _ShopItemCard(
+                                emoji: item.emoji,
+                                name: item.name,
+                                price: item.price,
+                                stockLabel: stockLabel,
+                                buttonLabel: label,
+                                loading: _isBuying || _isEquipping,
+                                onPressed: !owned
+                                    ? () => _buyCosmetic(item)
+                                    : (equipped
+                                          ? _removeHeadCosmetic
+                                          : () => _equipCosmetic(item)),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
+}
+
+class _BotiquinShopItem {
+  final String id;
+  final String emoji;
+  final String name;
+  final int price;
+
+  const _BotiquinShopItem({
+    required this.id,
+    required this.emoji,
+    required this.name,
+    required this.price,
+  });
 }
 
 class _TopHeader extends StatelessWidget {

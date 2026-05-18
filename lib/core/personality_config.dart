@@ -43,6 +43,15 @@ class ActionModifiers {
   final double pasearEnergia;
   final double pasearHambreCosto;
   final double pasearVelocidad; // 0.4 = va lento en pantalla (Glotón)
+  // Botiquin
+  final double? vendaSalud;
+  final double? vendaAfecto;
+  final double? sueroEnergia;
+  final double? sueroHambre;
+  final double? sueroSalud;
+  final double? aromaAfecto;
+  final double? aromaLimpieza;
+  final double? aromaSalud;
 
   const ActionModifiers({
     this.alimentarHambre = 1.0,
@@ -68,6 +77,14 @@ class ActionModifiers {
     this.pasearEnergia = 1.0,
     this.pasearHambreCosto = 1.0,
     this.pasearVelocidad = 1.0,
+    this.vendaSalud,
+    this.vendaAfecto,
+    this.sueroEnergia,
+    this.sueroHambre,
+    this.sueroSalud,
+    this.aromaAfecto,
+    this.aromaLimpieza,
+    this.aromaSalud,
   });
 }
 
@@ -205,6 +222,8 @@ class PersonalityRegistry {
         banarDificil: true, // se mueve al bañar
         banarLimpieza: 0.85,
         pasearAfecto: 1.4,
+        sueroEnergia: 0.3,
+        aromaLimpieza: -0.2,
       ),
       deterioro: DecayModifiers(
         energia: 2.0, // gasta energía aún sin jugar
@@ -291,6 +310,9 @@ class PersonalityRegistry {
         banarEscapa: true, // escapa a otras pantallas hasta 3×
         banarLimpieza: 0.6,
         pasearAfecto: 1.3,
+        vendaSalud: -0.1,
+        sueroEnergia: 0.2,
+        aromaAfecto: -0.2,
       ),
       deterioro: DecayModifiers(
         salud: 0.3, // + evento especial −1/−2 cada 3–5h
@@ -378,6 +400,8 @@ class PersonalityRegistry {
         pasearVelocidad: 0.4, // va más lento
         pasearHambreCosto: 1.5,
         jugarLimpieza: -1.3,
+        vendaSalud: 0.2,
+        sueroHambre: 0.4,
       ),
       deterioro: DecayModifiers(
         hambre: 3.0,
@@ -450,6 +474,8 @@ class PersonalityRegistry {
         jugarAfecto: 2.0, // jugar: +15×2 = +30 ← lenguaje de amor
         dormirAfecto: -0.5, // extraña al niño
         pasearAfecto: 0.3,
+        vendaAfecto: 0.5,
+        aromaAfecto: 0.5,
       ),
       deterioro: DecayModifiers(afecto: 2.0, anomaliaFactor: 5.0),
       reacciones: [
@@ -511,6 +537,9 @@ class PersonalityRegistry {
         alimentarVelocidadPlato: 0.3, // plato baja muy lento
         jugarLimpieza: -1.5, // se ensucia más al jugar
         jugarEnergiaCosto: 1.2,
+        vendaSalud: 0.3,
+        sueroSalud: 0.3,
+        aromaAfecto: 0.3,
       ),
       deterioro: DecayModifiers(
         anomaliaFactor: 4.0,

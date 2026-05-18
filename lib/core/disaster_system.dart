@@ -9,7 +9,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../application/models/pet_ai_decision.dart';
 import '../core/enums/pet_emotion.dart';
 import '../core/enums/pet_need.dart';
-import '../data/repositories/user_repository.dart';
 import 'app_router.dart';
 
 const String disasterScreenAll = 'all';
@@ -17,8 +16,7 @@ const String disasterScreenHome = 'home';
 const String disasterScreenAlimentar = 'alimentar';
 const String disasterScreenJugar = 'jugar';
 const String disasterScreenDormir = 'dormir';
-const int _defaultMissionRewardCoins = 5;
-
+const String disasterScreenBanar = 'banar';
 enum DisasterType { comida, juguete, basura, porcion }
 
 class DisasterObject {
@@ -57,10 +55,12 @@ class DisasterState {
 
 class DisasterCubit extends Cubit<DisasterState> {
   final Random _random = Random();
-  final UserRepository _userRepository = UserRepository();
   static const List<String> _toyIds = ['1', '2', '3', '4', '5', '6'];
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _pendingSub;
   String? _activeMascotaId;
+  final Map<String, List<DisasterObject>> _objectsBySourceDoc =
+      <String, List<DisasterObject>>{};
+  int _objectSequence = 0;
 
   DisasterCubit() : super(const DisasterState());
 
@@ -69,6 +69,7 @@ class DisasterCubit extends Cubit<DisasterState> {
       final userId = FirebaseAuth.instance.currentUser?.uid;
       if (userId == null || mascotaId.isEmpty) {
         await _stopWatching();
+        _objectsBySourceDoc.clear();
         emit(const DisasterState());
         return;
       }
@@ -101,39 +102,12 @@ class DisasterCubit extends Cubit<DisasterState> {
           .get();
 
       if (snap.docs.isEmpty) {
+        _objectsBySourceDoc.clear();
         emit(const DisasterState());
         return;
       }
 
-      final objetos = <DisasterObject>[];
-      for (final doc in snap.docs) {
-        final data = doc.data();
-        final tipo = _parseTipo(data['tipo'] as String? ?? 'comida');
-        if (tipo == DisasterType.juguete) {
-          continue;
-        }
-        final cantidad = (data['cantidad'] as int?) ?? 1;
-        final pantalla = _normalizarPantalla(data['pantalla'] as String?);
-
-        for (int i = 0; i < cantidad; i++) {
-          objetos.add(
-            DisasterObject(
-              id: '${doc.id}_$i',
-              sourceDocId: doc.id,
-              tipo: tipo,
-              emoji: data['emoji'] as String? ?? '🍖',
-              pantalla: pantalla,
-              posicion: Offset(
-                0.05 + _random.nextDouble() * 0.85,
-                0.10 + _random.nextDouble() * 0.70,
-              ),
-              escala: 0.8 + _random.nextDouble() * 0.6,
-            ),
-          );
-        }
-      }
-
-      emit(state.copyWith(objetos: objetos, hayDesastre: objetos.isNotEmpty));
+      emit(_buildStateFromSnapshot(snap));
     } catch (e) {
       debugPrint('Error verificando desastre: $e');
     }
@@ -145,6 +119,8 @@ class DisasterCubit extends Cubit<DisasterState> {
     required String emoji,
     required int cantidad,
     String pantalla = disasterScreenAll,
+    String? missionId,
+    String? residueOrigin,
   }) async {
     try {
       final userId = FirebaseAuth.instance.currentUser?.uid;
@@ -169,7 +145,10 @@ class DisasterCubit extends Cubit<DisasterState> {
             'tipo': tipo.name,
             'emoji': emoji,
             'cantidad': cantidad,
+            'cantidad_inicial': cantidad,
             'pantalla': pantallaNormalizada,
+            'mision_id': missionId,
+            'origen_residuo': residueOrigin,
             'recogido': false,
             'fecha': FieldValue.serverTimestamp(),
             if (toyIds.isNotEmpty) 'toy_ids': toyIds,
@@ -179,26 +158,17 @@ class DisasterCubit extends Cubit<DisasterState> {
         return;
       }
 
-      final nuevos = List<DisasterObject>.from(state.objetos);
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      for (int i = 0; i < cantidad; i++) {
-        nuevos.add(
-          DisasterObject(
-            id: 'live_${timestamp}_$i',
-            sourceDocId: docRef.id,
-            tipo: tipo,
-            emoji: emoji,
-            pantalla: pantallaNormalizada,
-            posicion: Offset(
-              0.05 + _random.nextDouble() * 0.85,
-              0.10 + _random.nextDouble() * 0.70,
-            ),
-            escala: 0.8 + _random.nextDouble() * 0.6,
-          ),
-        );
-      }
+      _objectsBySourceDoc[docRef.id] = List<DisasterObject>.generate(
+        cantidad,
+        (_) => _createVisualObject(
+          sourceDocId: docRef.id,
+          tipo: tipo,
+          emoji: emoji,
+          pantalla: pantallaNormalizada,
+        ),
+      );
 
-      emit(state.copyWith(objetos: nuevos, hayDesastre: nuevos.isNotEmpty));
+      emit(_stateFromCache());
     } catch (e) {
       debugPrint('Error generando desastre: $e');
     }
@@ -209,13 +179,12 @@ class DisasterCubit extends Cubit<DisasterState> {
     required DisasterType tipo,
     required String emoji,
     required Map<String, int> cantidadPorPantalla,
+    String? missionId,
+    String? residueOrigin,
   }) async {
     try {
       final userId = FirebaseAuth.instance.currentUser?.uid;
       if (userId == null) return;
-
-      final nuevos = List<DisasterObject>.from(state.objetos);
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
 
       for (final entry in cantidadPorPantalla.entries) {
         final cantidad = entry.value;
@@ -233,30 +202,26 @@ class DisasterCubit extends Cubit<DisasterState> {
               'tipo': tipo.name,
               'emoji': emoji,
               'cantidad': cantidad,
+              'cantidad_inicial': cantidad,
               'pantalla': pantalla,
+              'mision_id': missionId,
+              'origen_residuo': residueOrigin,
               'recogido': false,
               'fecha': FieldValue.serverTimestamp(),
             });
 
-        for (int i = 0; i < cantidad; i++) {
-          nuevos.add(
-            DisasterObject(
-              id: 'live_${timestamp}_${pantalla}_$i',
-              sourceDocId: docRef.id,
-              tipo: tipo,
-              emoji: emoji,
-              pantalla: pantalla,
-              posicion: Offset(
-                0.05 + _random.nextDouble() * 0.85,
-                0.10 + _random.nextDouble() * 0.70,
-              ),
-              escala: 0.8 + _random.nextDouble() * 0.6,
-            ),
-          );
-        }
+        _objectsBySourceDoc[docRef.id] = List<DisasterObject>.generate(
+          cantidad,
+          (_) => _createVisualObject(
+            sourceDocId: docRef.id,
+            tipo: tipo,
+            emoji: emoji,
+            pantalla: pantalla,
+          ),
+        );
       }
 
-      emit(state.copyWith(objetos: nuevos, hayDesastre: nuevos.isNotEmpty));
+      emit(_stateFromCache());
     } catch (e) {
       debugPrint('Error generando desastre distribuido: $e');
     }
@@ -268,7 +233,7 @@ class DisasterCubit extends Cubit<DisasterState> {
 
     var probability = 0.10;
     var tipo = DisasterType.values[_random.nextInt(DisasterType.values.length)];
-    var emoji = '🍂';
+    var emoji = '\u{1F342}';
     var pantalla = disasterScreenAll;
     var cantidad = 1;
 
@@ -276,20 +241,20 @@ class DisasterCubit extends Cubit<DisasterState> {
         decision.needPriority == PetNeed.hygiene) {
       probability = 0.35;
       tipo = DisasterType.basura;
-      emoji = '🗑️';
+      emoji = '\u{1F5D1}\u{FE0F}';
       pantalla = disasterScreenHome;
       cantidad = 1 + _random.nextInt(decision.anomaliaActiva ? 2 : 1);
     } else if (decision.emotion == PetEmotion.hungry ||
         decision.needPriority == PetNeed.hunger) {
       probability = 0.28;
       tipo = _random.nextBool() ? DisasterType.comida : DisasterType.porcion;
-      emoji = tipo == DisasterType.porcion ? '🥣' : '🍖';
+      emoji = tipo == DisasterType.porcion ? '\u{1F963}' : '\u{1F356}';
       pantalla = disasterScreenAlimentar;
     } else if (decision.emotion == PetEmotion.bored ||
         decision.needPriority == PetNeed.affection) {
       probability = 0.22;
       tipo = DisasterType.juguete;
-      emoji = '🧸';
+      emoji = '\u{1F9F8}';
       pantalla = disasterScreenJugar;
     }
 
@@ -316,18 +281,20 @@ class DisasterCubit extends Cubit<DisasterState> {
     );
     if (objetivo == null) return;
 
+    final objetosDoc = _objectsBySourceDoc[objetivo.sourceDocId];
+    if (objetosDoc != null) {
+      objetosDoc.removeWhere((objeto) => objeto.id == objetivo.id);
+      if (objetosDoc.isEmpty) {
+        _objectsBySourceDoc.remove(objetivo.sourceDocId);
+      }
+    }
+
     await _descontarObjetoPersistido(
       mascotaId: mascotaId,
       sourceDocId: objetivo.sourceDocId,
     );
 
-    final actualizados = state.objetos.where((o) => o.id != objetoId).toList();
-    emit(
-      state.copyWith(
-        objetos: actualizados,
-        hayDesastre: actualizados.isNotEmpty,
-      ),
-    );
+    emit(_stateFromCache());
   }
 
   Future<void> _descontarObjetoPersistido({
@@ -344,6 +311,10 @@ class DisasterCubit extends Cubit<DisasterState> {
         .doc(mascotaId)
         .collection('desastres_pendientes')
         .doc(sourceDocId);
+
+    final beforeSnap = await disasterRef.get();
+    final beforeData = beforeSnap.data() ?? <String, dynamic>{};
+    final missionId = beforeData['mision_id'] as String?;
 
     await FirebaseFirestore.instance.runTransaction((tx) async {
       final snap = await tx.get(disasterRef);
@@ -368,6 +339,11 @@ class DisasterCubit extends Cubit<DisasterState> {
       userId: userId,
       mascotaId: mascotaId,
     );
+    await _completarMisionResiduosSiCorresponde(
+      userId: userId,
+      mascotaId: mascotaId,
+      missionId: missionId,
+    );
   }
 
   Future<void> _completarMisionesSiYaNoQuedaComida({
@@ -389,16 +365,13 @@ class DisasterCubit extends Cubit<DisasterState> {
     });
     if (quedaComida) return;
 
-    final coinsGanadas = await _completarMisionesRecogerComida(
+    await _completarMisionesRecogerComida(
       userId: userId,
       mascotaId: mascotaId,
     );
-    if (coinsGanadas > 0) {
-      await _sumarMonedasUsuario(userId: userId, coins: coinsGanadas);
-    }
   }
 
-  Future<int> _completarMisionesRecogerComida({
+  Future<void> _completarMisionesRecogerComida({
     required String userId,
     required String mascotaId,
   }) async {
@@ -416,13 +389,11 @@ class DisasterCubit extends Cubit<DisasterState> {
       final ahora = Timestamp.now();
       final batch = FirebaseFirestore.instance.batch();
       var tieneCambios = false;
-      var coinsGanadas = 0;
 
       for (final doc in pending.docs) {
         final data = doc.data();
         final tipo = _normalizarTipoMision(doc.id, data);
         if (tipo != 'recoger_comida') continue;
-        coinsGanadas += _rewardCoinsFromMissionData(data);
         batch.update(doc.reference, {
           'estado': 'completada',
           'fecha_completada': ahora,
@@ -431,24 +402,9 @@ class DisasterCubit extends Cubit<DisasterState> {
       }
 
       if (tieneCambios) await batch.commit();
-      return tieneCambios ? coinsGanadas : 0;
     } catch (e) {
       debugPrint('Error completando mision recoger comida: $e');
-      return 0;
     }
-  }
-
-  int _rewardCoinsFromMissionData(Map<String, dynamic> data) {
-    final coins = (data['reward_coins'] as num?)?.toInt() ?? 0;
-    return coins > 0 ? coins : _defaultMissionRewardCoins;
-  }
-
-  Future<void> _sumarMonedasUsuario({
-    required String userId,
-    required int coins,
-  }) async {
-    if (coins <= 0) return;
-    await _userRepository.addCoins(userId, coins);
   }
 
   String _normalizarTipoMision(String idMision, Map<String, dynamic> data) {
@@ -479,6 +435,7 @@ class DisasterCubit extends Cubit<DisasterState> {
       disasterScreenAlimentar => disasterScreenAlimentar,
       disasterScreenJugar => disasterScreenJugar,
       disasterScreenDormir => disasterScreenDormir,
+      disasterScreenBanar => disasterScreenBanar,
       _ => disasterScreenAll,
     };
   }
@@ -505,46 +462,165 @@ class DisasterCubit extends Cubit<DisasterState> {
     QuerySnapshot<Map<String, dynamic>> snap,
   ) {
     if (snap.docs.isEmpty) {
+      _objectsBySourceDoc.clear();
       return const DisasterState();
     }
 
-    final objetos = <DisasterObject>[];
+    final activeDocIds = snap.docs.map((doc) => doc.id).toSet();
+    _objectsBySourceDoc.removeWhere((docId, _) => !activeDocIds.contains(docId));
+
     for (final doc in snap.docs) {
       final data = doc.data();
       final tipo = _parseTipo(data['tipo'] as String? ?? 'comida');
-      if (tipo == DisasterType.juguete) continue;
+      if (tipo == DisasterType.juguete) {
+        _objectsBySourceDoc.remove(doc.id);
+        continue;
+      }
 
       final cantidad = (data['cantidad'] as int?) ?? 1;
       final pantalla = _normalizarPantalla(data['pantalla'] as String?);
-      for (int i = 0; i < cantidad; i++) {
-        objetos.add(
-          DisasterObject(
-            id: '${doc.id}_$i',
-            sourceDocId: doc.id,
-            tipo: tipo,
-            emoji: data['emoji'] as String? ?? 'ðŸ–',
-            pantalla: pantalla,
-            posicion: Offset(
-              0.05 + _random.nextDouble() * 0.85,
-              0.10 + _random.nextDouble() * 0.70,
+      final emoji = _resolveDisplayEmoji(
+        tipo,
+        data['emoji'] as String?,
+      );
+      final existentes = List<DisasterObject>.from(
+        _objectsBySourceDoc[doc.id] ?? const <DisasterObject>[],
+      );
+
+      if (existentes.length > cantidad) {
+        existentes.removeRange(cantidad, existentes.length);
+      } else {
+        while (existentes.length < cantidad) {
+          existentes.add(
+            _createVisualObject(
+              sourceDocId: doc.id,
+              tipo: tipo,
+              emoji: emoji,
+              pantalla: pantalla,
             ),
-            escala: 0.8 + _random.nextDouble() * 0.6,
-          ),
-        );
+          );
+        }
       }
+
+      _objectsBySourceDoc[doc.id] = existentes
+          .map(
+            (objeto) => DisasterObject(
+              id: objeto.id,
+              sourceDocId: objeto.sourceDocId,
+              tipo: tipo,
+              emoji: emoji,
+              pantalla: pantalla,
+              posicion: objeto.posicion,
+              escala: objeto.escala,
+            ),
+          )
+          .toList();
     }
 
+    return _stateFromCache();
+  }
+
+  DisasterObject _createVisualObject({
+    required String sourceDocId,
+    required DisasterType tipo,
+    required String emoji,
+    required String pantalla,
+  }) {
+    final objectId = '${sourceDocId}_${_objectSequence++}';
+    return DisasterObject(
+      id: objectId,
+      sourceDocId: sourceDocId,
+      tipo: tipo,
+      emoji: emoji,
+      pantalla: pantalla,
+      posicion: Offset(
+        0.05 + _random.nextDouble() * 0.85,
+        0.10 + _random.nextDouble() * 0.70,
+      ),
+      escala: 0.8 + _random.nextDouble() * 0.6,
+    );
+  }
+
+  DisasterState _stateFromCache() {
+    final objetos = _objectsBySourceDoc.values.expand((items) => items).toList();
     return DisasterState(objetos: objetos, hayDesastre: objetos.isNotEmpty);
   }
+
+  Future<void> _completarMisionResiduosSiCorresponde({
+    required String userId,
+    required String mascotaId,
+    required String? missionId,
+  }) async {
+    if (missionId == null || missionId.isEmpty) return;
+
+    final restantes = await FirebaseFirestore.instance
+        .collection('usuarios')
+        .doc(userId)
+        .collection('mascotas')
+        .doc(mascotaId)
+        .collection('desastres_pendientes')
+        .where('recogido', isEqualTo: false)
+        .where('mision_id', isEqualTo: missionId)
+        .get();
+    if (restantes.docs.isNotEmpty) return;
+
+    final missionRef = FirebaseFirestore.instance
+        .collection('usuarios')
+        .doc(userId)
+        .collection('mascotas')
+        .doc(mascotaId)
+        .collection('misiones_activas')
+        .doc(missionId);
+
+    await FirebaseFirestore.instance.runTransaction((tx) async {
+      final snap = await tx.get(missionRef);
+      if (!snap.exists) return;
+
+      final data = snap.data() ?? <String, dynamic>{};
+      final status = (data['estado'] as String?) ?? 'pendiente';
+      if (status != 'pendiente') return;
+
+      tx.set(missionRef, {
+        'estado': 'completada',
+        'fecha_completada': Timestamp.now(),
+      }, SetOptions(merge: true));
+    });
+  }
+
+  String _resolveDisplayEmoji(DisasterType tipo, String? rawEmoji) {
+    final cleaned = rawEmoji?.trim() ?? '';
+    if (_looksCorruptedEmoji(cleaned) || cleaned.isEmpty) {
+      return _defaultEmojiForType(tipo);
+    }
+    return cleaned;
+  }
+
+  bool _looksCorruptedEmoji(String value) {
+    return value.contains('Ã') ||
+        value.contains('ð') ||
+        value.contains('â') ||
+        value.contains('�') ||
+        value == '??';
+  }
+
+  String _defaultEmojiForType(DisasterType tipo) {
+    return switch (tipo) {
+      DisasterType.comida => '\u{1F356}',
+      DisasterType.juguete => '\u{1F9F8}',
+      DisasterType.basura => '\u{1F5D1}\u{FE0F}',
+      DisasterType.porcion => '\u{1F963}',
+    };
+  }
+
 
   Future<void> _stopWatching() async {
     await _pendingSub?.cancel();
     _pendingSub = null;
     _activeMascotaId = null;
   }
-
   Future<void> reset() async {
     await _stopWatching();
+    _objectsBySourceDoc.clear();
     emit(const DisasterState());
   }
 
@@ -609,6 +685,8 @@ class DisasterOverlay extends StatelessWidget {
         return ruta.startsWith(AppRoutes.jugar);
       case disasterScreenDormir:
         return ruta.startsWith(AppRoutes.dormir);
+      case disasterScreenBanar:
+        return ruta.startsWith(AppRoutes.banar);
       case disasterScreenAll:
       default:
         return true;
@@ -732,10 +810,14 @@ class _DisasterBanner extends StatelessWidget {
           BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 8),
         ],
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text('⚠️', style: TextStyle(fontSize: 16)),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+          const Icon(
+            Icons.warning_amber_rounded,
+            size: 18,
+            color: Colors.white,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(

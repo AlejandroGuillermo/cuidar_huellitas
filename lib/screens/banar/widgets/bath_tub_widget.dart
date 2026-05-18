@@ -4,6 +4,8 @@ class BathTubWidget extends StatelessWidget {
   final bool petInTub;
   final bool canShowPet;
   final bool draggingBathTool;
+  final bool showEscapeHint;
+  final String? escapeHintText;
   final VoidCallback onTapTub;
   final Widget Function(double tubWidth) buildTubLeg;
   final Widget Function(double tubWidth, {int delay}) buildDrip;
@@ -14,6 +16,8 @@ class BathTubWidget extends StatelessWidget {
     required this.petInTub,
     required this.canShowPet,
     required this.draggingBathTool,
+    required this.showEscapeHint,
+    required this.escapeHintText,
     required this.onTapTub,
     required this.buildTubLeg,
     required this.buildDrip,
@@ -159,6 +163,41 @@ class BathTubWidget extends StatelessWidget {
                           ),
                         );
                       },
+                    ),
+                  ),
+                ),
+              if (!petInTub && canShowPet && showEscapeHint && escapeHintText != null)
+                Positioned(
+                  bottom: tubHeight * 1.34,
+                  left: tubWidth * 0.02,
+                  right: tubWidth * 0.02,
+                  child: IgnorePointer(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.96),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: const Color(0xFFFFD3B3)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.08),
+                            blurRadius: 14,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      child: Text(
+                        escapeHintText!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF7B5A4A),
+                        ),
+                      ),
                     ),
                   ),
                 ),

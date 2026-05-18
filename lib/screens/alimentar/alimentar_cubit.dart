@@ -28,17 +28,21 @@ class AlimentarCubit extends Cubit<AlimentarState> {
 
     final userId = _inventoryRepository.currentUserId;
     if (userId == null) {
-      emit(state.copyWith(loading: false));
+      _emitIfOpen(state.copyWith(loading: false));
       return;
     }
 
     try {
       await _inventoryRepository.ensureDefaultInventory(userId);
+      if (isClosed) return;
       await _userRepository.normalizeLegacyUserDoc(userId);
+      if (isClosed) return;
       final inventory = await _inventoryRepository.loadFoodInventory(userId);
+      if (isClosed) return;
       final coins = await _userRepository.loadCoins(userId);
+      if (isClosed) return;
 
-      emit(
+      _emitIfOpen(
         state.copyWith(
           coins: coins,
           inventoryUnits: Map<String, double>.from(inventory.cantidades),
@@ -47,7 +51,7 @@ class AlimentarCubit extends Cubit<AlimentarState> {
         ),
       );
     } catch (_) {
-      emit(state.copyWith(loading: false));
+      _emitIfOpen(state.copyWith(loading: false));
     }
   }
 
@@ -67,7 +71,7 @@ class AlimentarCubit extends Cubit<AlimentarState> {
         : (FoodCatalog.byId(nextPlateFoodId)?.emoji ?? state.plateEmoji);
     final nextPlateLevel = pet.nivelPlato;
 
-    emit(
+    _emitIfOpen(
       state.copyWith(
         plateLevel: nextPlateLevel,
         plateFoodId: nextPlateFoodId,
@@ -95,7 +99,7 @@ class AlimentarCubit extends Cubit<AlimentarState> {
       return 'Primero termina el alimento que ya está en el plato.';
     }
 
-    emit(
+    _emitIfOpen(
       state.copyWith(
         activeBag: food,
         plateFoodId: state.plateFoodId ?? food.id,
@@ -106,11 +110,11 @@ class AlimentarCubit extends Cubit<AlimentarState> {
   }
 
   void removeBag() {
-    emit(state.copyWith(clearActiveBag: true));
+    _emitIfOpen(state.copyWith(clearActiveBag: true));
   }
 
   void clearPlateLocally() {
-    emit(
+    _emitIfOpen(
       state.copyWith(
         plateLevel: 0,
         clearPlateFoodId: true,
@@ -135,7 +139,7 @@ class AlimentarCubit extends Cubit<AlimentarState> {
       return;
     }
 
-    emit(
+    _emitIfOpen(
       state.copyWith(
         plateFoodId: bag.id,
         plateEmoji: bag.emoji,
@@ -144,6 +148,12 @@ class AlimentarCubit extends Cubit<AlimentarState> {
     );
 
     _pouringTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (isClosed) {
+        _pouringTimer?.cancel();
+        _pouringTimer = null;
+        return;
+      }
+
       final currentState = state;
       final currentUnits = currentState.inventoryUnits[bag.id] ?? 0.0;
 
@@ -180,7 +190,7 @@ class AlimentarCubit extends Cubit<AlimentarState> {
         nextInventory[bag.id] = 0.0;
       }
 
-      emit(
+      _emitIfOpen(
         currentState.copyWith(
           plateLevel: nextPlateLevel,
           inventoryUnits: nextInventory,
@@ -199,8 +209,13 @@ class AlimentarCubit extends Cubit<AlimentarState> {
     _pouringTimer?.cancel();
     _pouringTimer = null;
     if (state.isPouring) {
-      emit(state.copyWith(isPouring: false));
+      _emitIfOpen(state.copyWith(isPouring: false));
     }
+  }
+
+  void _emitIfOpen(AlimentarState nextState) {
+    if (isClosed) return;
+    emit(nextState);
   }
 
   Future<void> persistInventoryAndPlate({

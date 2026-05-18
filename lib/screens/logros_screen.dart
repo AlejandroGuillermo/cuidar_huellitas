@@ -4,63 +4,88 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../core/app_colors.dart';
 import '../cubit/pet_cubit.dart';
 import '../cubit/pet_state.dart';
+import '../data/repositories/mission_repository.dart';
+import '../domain/entities/pending_mission.dart';
+import '../domain/enums/pet_location.dart';
 import '../widgets/pet_avatar_rive.dart';
 
-class LogrosScreen extends StatelessWidget {
+class LogrosScreen extends StatefulWidget {
   const LogrosScreen({super.key});
+
+  @override
+  State<LogrosScreen> createState() => _LogrosScreenState();
+}
+
+class _LogrosScreenState extends State<LogrosScreen> {
+  final MissionRepository _missionRepository = MissionRepository();
+  String? _activeMascotaId;
+  bool _isLoadingCompletedToday = false;
+  List<PendingMission> _completedToday = const [];
+
+  Future<void> _loadCompletedToday(String mascotaId) async {
+    if (mascotaId.isEmpty || _activeMascotaId == mascotaId) return;
+
+    setState(() {
+      _activeMascotaId = mascotaId;
+      _isLoadingCompletedToday = true;
+      _completedToday = const [];
+    });
+
+    try {
+      final missions = await _missionRepository.loadCompletedToday(mascotaId);
+      if (!mounted || _activeMascotaId != mascotaId) return;
+      setState(() => _completedToday = missions);
+    } catch (_) {
+      if (!mounted || _activeMascotaId != mascotaId) return;
+      setState(() => _completedToday = const []);
+    } finally {
+      if (mounted && _activeMascotaId == mascotaId) {
+        setState(() => _isLoadingCompletedToday = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return BlocBuilder<PetCubit, PetState>(
       builder: (context, state) {
         final mascota = state.mascota;
+        final mascotaId = mascota?.idMascota;
+        if (mascotaId != null &&
+            mascotaId.isNotEmpty &&
+            _activeMascotaId != mascotaId) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            _loadCompletedToday(mascotaId);
+          });
+        }
+
         final nombreMascota = mascota?.nombreMascota ?? 'Tu mascota';
         final tipoMascota = (mascota?.tipoMascota ?? 'perro').toLowerCase();
-        final petEmoji = tipoMascota;
 
         final promedio = mascota == null
             ? 0
             : ((mascota.nivelSalud +
-                          mascota.nivelEnergia +
-                          mascota.nivelHambre +
-                          mascota.nivelLimpieza +
-                          mascota.nivelAfecto) /
-                      5)
-                  .round();
+                        mascota.nivelEnergia +
+                        mascota.nivelHambre +
+                        mascota.nivelLimpieza +
+                        mascota.nivelAfecto) /
+                    5)
+                .round();
         final streakDays = (promedio / 18).clamp(1, 7).round();
         final goalDays = 7;
         final progressToGoal = (streakDays / goalDays).clamp(0.0, 1.0);
 
-        final missions = [
-          _MissionData(
-            icon: Icons.restaurant_rounded,
-            badge: 'Nuevo',
-            date: 'Hoy',
-            title: 'Rutina de comida estable',
-            description:
-                '$nombreMascota respondió bien a una secuencia de cuidados constante.',
-            tip: 'Seguir horarios similares ayuda a que coma con más calma.',
-          ),
-          _MissionData(
-            icon: Icons.clean_hands_rounded,
-            badge: 'Desbloqueado',
-            date: 'Esta semana',
-            title: 'Espacio limpio y seguro',
-            description:
-                'Mantienes su entorno ordenado y eso mejora su bienestar diario.',
-            tip:
-                'La limpieza frecuente reduce estrés y refuerza hábitos sanos.',
-          ),
-          _MissionData(
-            icon: Icons.favorite_rounded,
-            badge: 'Especial',
-            date: 'Reciente',
-            title: 'Vínculo afectivo fuerte',
-            description:
-                '$nombreMascota busca más tu compañía y se siente en confianza contigo.',
-            tip: 'Las interacciones pequeñas y frecuentes fortalecen el apego.',
-          ),
-        ];
+        final missionCards = _completedToday
+            .map(_MissionData.fromPendingMission)
+            .toList();
+        final claimedCount = _completedToday
+            .where((mission) => mission.rewardClaimed)
+            .length;
+        final coinsToday = _completedToday.fold<int>(
+          0,
+          (sum, mission) => sum + mission.rewardCoins,
+        );
 
         final stats = [
           _StatData(
@@ -72,7 +97,7 @@ class LogrosScreen extends StatelessWidget {
           _StatData(
             icon: Icons.bedtime_rounded,
             value: '${mascota?.nivelEnergia ?? 0}%',
-            label: 'Energía disponible',
+            label: 'Energia disponible',
             accent: AppColors.azulPrincipal,
           ),
           _StatData(
@@ -84,8 +109,8 @@ class LogrosScreen extends StatelessWidget {
         ];
 
         final insights = [
-          'Me siento acompañado cuando mantienes mi rutina diaria.',
-          'Disfruto más jugar contigo cuando primero me ayudas a estar tranquilo.',
+          'Me siento acompanado cuando mantienes mi rutina diaria.',
+          'Disfruto mas jugar contigo cuando primero me ayudas a estar tranquilo.',
           'Cuando cuidas mis niveles seguido, descanso y me recupero mejor.',
         ];
 
@@ -110,7 +135,7 @@ class LogrosScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _HeroLogrosCard(
-                      petEmoji: petEmoji,
+                      petType: tipoMascota,
                       nombreMascota: nombreMascota,
                       streakDays: streakDays,
                       goalDays: goalDays,
@@ -120,40 +145,22 @@ class LogrosScreen extends StatelessWidget {
                     _StatsGrid(stats: stats),
                     const SizedBox(height: 18),
                     _SectionCard(
-                      title: 'Logros desbloqueados',
-                      icon: Icons.workspace_premium_rounded,
-                      trailing: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.rosa.withValues(alpha: 0.14),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          '${missions.length} activos',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.rosa,
-                          ),
-                        ),
+                      title: 'Misiones cumplidas hoy',
+                      icon: Icons.task_alt_rounded,
+                      trailing: _TodaySummaryPill(
+                        count: missionCards.length,
+                        coinsToday: coinsToday,
                       ),
-                      child: Column(
-                        children: [
-                          for (var i = 0; i < missions.length; i++) ...[
-                            _MissionCard(data: missions[i]),
-                            if (i != missions.length - 1)
-                              const SizedBox(height: 12),
-                          ],
-                        ],
+                      child: _CompletedTodaySection(
+                        isLoading: _isLoadingCompletedToday,
+                        missions: missionCards,
+                        claimedCount: claimedCount,
                       ),
                     ),
                     const SizedBox(height: 18),
                     _InsightsSection(
                       nombreMascota: nombreMascota,
-                      petEmoji: petEmoji,
+                      petType: tipoMascota,
                       insights: insights,
                     ),
                   ],
@@ -168,14 +175,14 @@ class LogrosScreen extends StatelessWidget {
 }
 
 class _HeroLogrosCard extends StatelessWidget {
-  final String petEmoji;
+  final String petType;
   final String nombreMascota;
   final int streakDays;
   final int goalDays;
   final double progressToGoal;
 
   const _HeroLogrosCard({
-    required this.petEmoji,
+    required this.petType,
     required this.nombreMascota,
     required this.streakDays,
     required this.goalDays,
@@ -232,7 +239,7 @@ class _HeroLogrosCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                     const Text(
-                      'Cada cuidado suma confianza, estabilidad y mejores hábitos.',
+                      'Cada mision completada fortalece la rutina, el vinculo y la estabilidad de tu mascota.',
                       style: TextStyle(
                         fontSize: 14,
                         height: 1.4,
@@ -261,7 +268,7 @@ class _HeroLogrosCard extends StatelessWidget {
                 ),
                 alignment: Alignment.center,
                 child: PetAvatarRive(
-                  tipoMascota: petEmoji,
+                  tipoMascota: petType,
                   width: 90,
                   height: 90,
                 ),
@@ -513,12 +520,98 @@ class _SectionCard extends StatelessWidget {
                   ),
                 ),
               ),
-              ?trailing,
+              trailing ?? const SizedBox.shrink(),
             ],
           ),
           const SizedBox(height: 16),
           child,
         ],
+      ),
+    );
+  }
+}
+
+class _CompletedTodaySection extends StatelessWidget {
+  final bool isLoading;
+  final List<_MissionData> missions;
+  final int claimedCount;
+
+  const _CompletedTodaySection({
+    required this.isLoading,
+    required this.missions,
+    required this.claimedCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 18),
+        child: Center(
+          child: CircularProgressIndicator(color: AppColors.azulPrincipal),
+        ),
+      );
+    }
+
+    if (missions.isEmpty) {
+      return const _EmptyMissionHistoryCard();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: AppColors.verdeFondo,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColors.verdeClaro),
+          ),
+          child: Text(
+            'Hoy completaste ${missions.length} mision(es) y ya cobraste $claimedCount recompensa(s).',
+            style: const TextStyle(
+              fontSize: 13,
+              height: 1.35,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textoPrincipal,
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        for (var i = 0; i < missions.length; i++) ...[
+          _MissionCard(data: missions[i]),
+          if (i != missions.length - 1) const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+}
+
+class _TodaySummaryPill extends StatelessWidget {
+  final int count;
+  final int coinsToday;
+
+  const _TodaySummaryPill({
+    required this.count,
+    required this.coinsToday,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.rosa.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '$count hoy • +$coinsToday',
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w800,
+          color: AppColors.rosa,
+        ),
       ),
     );
   }
@@ -541,7 +634,7 @@ class _MissionCard extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: [Color(0xFFFFF9FB), Colors.white],
         ),
-        border: Border.all(color: AppColors.rosa.withValues(alpha: 0.18)),
+        border: Border.all(color: data.borderColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -552,10 +645,10 @@ class _MissionCard extends StatelessWidget {
                 width: 46,
                 height: 46,
                 decoration: BoxDecoration(
-                  color: AppColors.rosa.withValues(alpha: 0.14),
+                  color: data.iconBackgroundColor,
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(data.icon, color: AppColors.rosa),
+                child: Icon(data.icon, color: data.iconColor),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -565,8 +658,8 @@ class _MissionCard extends StatelessWidget {
                   children: [
                     _MissionPill(
                       text: data.badge,
-                      backgroundColor: AppColors.rosa.withValues(alpha: 0.14),
-                      textColor: AppColors.rosa,
+                      backgroundColor: data.badgeBackgroundColor,
+                      textColor: data.badgeTextColor,
                     ),
                     _MissionPill(
                       text: data.date,
@@ -624,7 +717,7 @@ class _MissionCard extends StatelessWidget {
                       ),
                       children: [
                         const TextSpan(
-                          text: 'Lo que aprendiste: ',
+                          text: 'Estado: ',
                           style: TextStyle(fontWeight: FontWeight.w800),
                         ),
                         TextSpan(text: data.tip),
@@ -674,12 +767,12 @@ class _MissionPill extends StatelessWidget {
 
 class _InsightsSection extends StatelessWidget {
   final String nombreMascota;
-  final String petEmoji;
+  final String petType;
   final List<String> insights;
 
   const _InsightsSection({
     required this.nombreMascota,
-    required this.petEmoji,
+    required this.petType,
     required this.insights,
   });
 
@@ -717,7 +810,7 @@ class _InsightsSection extends StatelessWidget {
                 ),
                 alignment: Alignment.center,
                 child: PetAvatarRive(
-                  tipoMascota: petEmoji,
+                  tipoMascota: petType,
                   width: 52,
                   height: 52,
                 ),
@@ -796,9 +889,53 @@ class _InsightCard extends StatelessWidget {
   }
 }
 
+class _EmptyMissionHistoryCard extends StatelessWidget {
+  const _EmptyMissionHistoryCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        color: const Color(0xFFF8FBFF),
+        border: Border.all(color: AppColors.azulFondo),
+      ),
+      child: const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Todavia no completas misiones hoy',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              color: AppColors.textoPrincipal,
+            ),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Cuando termines una mision en Retos, aparecera aqui con su recompensa y estado de cobro.',
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.4,
+              color: AppColors.textoSecundario,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _MissionData {
   final IconData icon;
+  final Color iconColor;
+  final Color iconBackgroundColor;
+  final Color borderColor;
   final String badge;
+  final Color badgeBackgroundColor;
+  final Color badgeTextColor;
   final String date;
   final String title;
   final String description;
@@ -806,12 +943,61 @@ class _MissionData {
 
   const _MissionData({
     required this.icon,
+    required this.iconColor,
+    required this.iconBackgroundColor,
+    required this.borderColor,
     required this.badge,
+    required this.badgeBackgroundColor,
+    required this.badgeTextColor,
     required this.date,
     required this.title,
     required this.description,
     required this.tip,
   });
+
+  factory _MissionData.fromPendingMission(PendingMission mission) {
+    final claimed = mission.rewardClaimed;
+    return _MissionData(
+      icon: _iconForMission(mission),
+      iconColor: claimed ? const Color(0xFF2B7A3D) : AppColors.azulPrincipal,
+      iconBackgroundColor: claimed
+          ? const Color(0xFFDDF7E3)
+          : AppColors.azulFondo,
+      borderColor: claimed
+          ? const Color(0xFFCBEAB7)
+          : AppColors.azulFondo.withValues(alpha: 0.75),
+      badge: claimed ? 'Cobrada' : 'Por cobrar',
+      badgeBackgroundColor: claimed
+          ? const Color(0xFFDDF7E3)
+          : const Color(0xFFFEE7B8),
+      badgeTextColor: claimed
+          ? const Color(0xFF2B7A3D)
+          : const Color(0xFFA86700),
+      date: 'Hoy',
+      title: mission.title,
+      description: mission.description,
+      tip: claimed
+          ? 'Ya recibiste ${mission.rewardCoins} monedas por esta mision.'
+          : 'La completaste hoy y aun puedes cobrar ${mission.rewardCoins} monedas en Retos.',
+    );
+  }
+
+  static IconData _iconForMission(PendingMission mission) {
+    switch (mission.resolvedLocation) {
+      case PetLocation.alimentar:
+        return Icons.restaurant_rounded;
+      case PetLocation.jugar:
+        return Icons.toys_rounded;
+      case PetLocation.dormir:
+        return Icons.bedtime_rounded;
+      case PetLocation.curar:
+        return Icons.health_and_safety_rounded;
+      case PetLocation.banar:
+        return Icons.shower_rounded;
+      case PetLocation.home:
+        return Icons.cleaning_services_rounded;
+    }
+  }
 }
 
 class _StatData {
