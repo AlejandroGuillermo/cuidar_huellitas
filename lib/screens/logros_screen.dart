@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'dart:math' as math;
 
 import '../core/app_colors.dart';
 import '../cubit/pet_cubit.dart';
@@ -8,6 +9,7 @@ import '../data/repositories/mission_repository.dart';
 import '../domain/entities/pending_mission.dart';
 import '../domain/enums/pet_location.dart';
 import '../widgets/pet_avatar_rive.dart';
+
 
 class LogrosScreen extends StatefulWidget {
   const LogrosScreen({super.key});
@@ -108,11 +110,28 @@ class _LogrosScreenState extends State<LogrosScreen> {
           ),
         ];
 
-        final insights = [
-          'Me siento acompanado cuando mantienes mi rutina diaria.',
-          'Disfruto mas jugar contigo cuando primero me ayudas a estar tranquilo.',
-          'Cuando cuidas mis niveles seguido, descanso y me recupero mejor.',
+        final learningPatterns = [
+          _RadarPattern(label: 'Rutina', value: (promedio / 100).clamp(0.0, 1.0)),
+          _RadarPattern(
+            label: 'Afecto',
+            value: ((mascota?.nivelAfecto ?? 0) / 100).clamp(0.0, 1.0),
+          ),
+          _RadarPattern(
+            label: 'Alimentación',
+            value: ((mascota?.nivelHambre ?? 0) / 100).clamp(0.0, 1.0),
+          ),
+          _RadarPattern(
+            label: 'Energía',
+            value: ((mascota?.nivelEnergia ?? 0) / 100).clamp(0.0, 1.0),
+          ),
+          _RadarPattern(
+            label: 'Higiene',
+            value: ((mascota?.nivelLimpieza ?? 0) / 100).clamp(0.0, 1.0),
+          ),
         ];
+
+        final mainInsight =
+            'Me siento acompañado cuando mantienes mi rutina diaria.';
 
         return Scaffold(
           backgroundColor: AppColors.fondoPrincipal,
@@ -161,7 +180,8 @@ class _LogrosScreenState extends State<LogrosScreen> {
                     _InsightsSection(
                       nombreMascota: nombreMascota,
                       petType: tipoMascota,
-                      insights: insights,
+                      patterns: learningPatterns,
+                      mainInsight: mainInsight,
                     ),
                   ],
                 ),
@@ -768,16 +788,21 @@ class _MissionPill extends StatelessWidget {
 class _InsightsSection extends StatelessWidget {
   final String nombreMascota;
   final String petType;
-  final List<String> insights;
+  final List<_RadarPattern> patterns;
+  final String mainInsight;
 
   const _InsightsSection({
     required this.nombreMascota,
     required this.petType,
-    required this.insights,
+    required this.patterns,
+    required this.mainInsight,
   });
 
   @override
   Widget build(BuildContext context) {
+    final rutina = (patterns[0].value * 100).round();
+    final alimentacion = (patterns[2].value * 100).round();
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
@@ -802,20 +827,20 @@ class _InsightsSection extends StatelessWidget {
           Row(
             children: [
               Container(
-                width: 48,
-                height: 48,
+                width: 58,
+                height: 58,
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(18),
                 ),
                 alignment: Alignment.center,
                 child: PetAvatarRive(
                   tipoMascota: petType,
-                  width: 52,
-                  height: 52,
+                  width: 60,
+                  height: 60,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 14),
               const Expanded(
                 child: Text(
                   'Lo que tu mascota ha aprendido de ti',
@@ -829,59 +854,125 @@ class _InsightsSection extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 10),
+
+          const SizedBox(height: 14),
+
           Text(
             '$nombreMascota reconoce patrones de cuidado y responde mejor a ellos.',
             style: const TextStyle(
-              fontSize: 14,
+              fontSize: 15,
               height: 1.35,
+              fontWeight: FontWeight.w600,
               color: Color(0xFFEAF1FF),
             ),
           ),
-          const SizedBox(height: 16),
-          for (var i = 0; i < insights.length; i++) ...[
-            _InsightCard(text: insights[i]),
-            if (i != insights.length - 1) const SizedBox(height: 10),
-          ],
-        ],
-      ),
-    );
-  }
-}
 
-class _InsightCard extends StatelessWidget {
-  final String text;
+          const SizedBox(height: 20),
 
-  const _InsightCard({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Padding(
-            padding: EdgeInsets.only(top: 1),
-            child: Icon(Icons.pets_rounded, size: 18, color: Colors.white),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              text,
-              style: const TextStyle(
-                fontSize: 14,
-                height: 1.4,
-                fontWeight: FontWeight.w700,
-                color: Colors.white,
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(26),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.10),
               ),
             ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'PATRONES APRENDIDOS ESTA SEMANA',
+                  style: TextStyle(
+                    fontSize: 13,
+                    letterSpacing: 0.6,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFFEAF1FF),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 260,
+                  child: Center(
+                    child: CustomPaint(
+                      size: const Size(240, 220),
+                      painter: _RadarChartPainter(patterns: patterns),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 14),
+
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final isCompact = constraints.maxWidth < 360;
+              final cardWidth = isCompact
+                  ? constraints.maxWidth
+                  : (constraints.maxWidth - 12) / 2;
+
+              return Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  SizedBox(
+                    width: cardWidth,
+                    child: _LearningSummaryCard(
+                      icon: Icons.auto_awesome_rounded,
+                      value: '$rutina%',
+                      label: 'Rutina diaria',
+                    ),
+                  ),
+                  SizedBox(
+                    width: cardWidth,
+                    child: _LearningSummaryCard(
+                      icon: Icons.restaurant_rounded,
+                      value: '$alimentacion%',
+                      label: 'Patrón alimentario',
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+
+          const SizedBox(height: 14),
+
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.12),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.pets_rounded,
+                  size: 20,
+                  color: Colors.white,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    mainInsight,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      height: 1.35,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -889,44 +980,6 @@ class _InsightCard extends StatelessWidget {
   }
 }
 
-class _EmptyMissionHistoryCard extends StatelessWidget {
-  const _EmptyMissionHistoryCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        color: const Color(0xFFF8FBFF),
-        border: Border.all(color: AppColors.azulFondo),
-      ),
-      child: const Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Todavia no completas misiones hoy',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-              color: AppColors.textoPrincipal,
-            ),
-          ),
-          SizedBox(height: 8),
-          Text(
-            'Cuando termines una mision en Retos, aparecera aqui con su recompensa y estado de cobro.',
-            style: TextStyle(
-              fontSize: 13,
-              height: 1.4,
-              color: AppColors.textoSecundario,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 class _MissionData {
   final IconData icon;
@@ -1012,4 +1065,220 @@ class _StatData {
     required this.label,
     required this.accent,
   });
+}
+
+class _RadarPattern {
+  final String label;
+  final double value;
+
+  const _RadarPattern({
+    required this.label,
+    required this.value,
+  });
+}
+
+class _LearningSummaryCard extends StatelessWidget {
+  final IconData icon;
+  final String value;
+  final String label;
+
+  const _LearningSummaryCard({
+    required this.icon,
+    required this.value,
+    required this.label,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 96,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.13),
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.18),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 22, color: Colors.white),
+          const Spacer(),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 28,
+              height: 1,
+              fontWeight: FontWeight.w900,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFFEAF1FF),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RadarChartPainter extends CustomPainter {
+  final List<_RadarPattern> patterns;
+
+  _RadarChartPainter({required this.patterns});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (patterns.isEmpty) return;
+
+    final center = Offset(size.width / 2, size.height / 2 + 8);
+    final radius = math.min(size.width, size.height) * 0.33;
+    final count = patterns.length;
+    final angleStep = (math.pi * 2) / count;
+    final startAngle = -math.pi / 2;
+
+    final gridPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.18)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.4;
+
+    final axisPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.16)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2;
+
+    final areaPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.22)
+      ..style = PaintingStyle.fill;
+
+    final linePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.88)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final dotPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+
+    for (var level = 1; level <= 4; level++) {
+      final currentRadius = radius * (level / 4);
+      final path = Path();
+
+      for (var i = 0; i < count; i++) {
+        final angle = startAngle + angleStep * i;
+        final point = Offset(
+          center.dx + math.cos(angle) * currentRadius,
+          center.dy + math.sin(angle) * currentRadius,
+        );
+
+        if (i == 0) {
+          path.moveTo(point.dx, point.dy);
+        } else {
+          path.lineTo(point.dx, point.dy);
+        }
+      }
+
+      path.close();
+      canvas.drawPath(path, gridPaint);
+    }
+
+    for (var i = 0; i < count; i++) {
+      final angle = startAngle + angleStep * i;
+      final end = Offset(
+        center.dx + math.cos(angle) * radius,
+        center.dy + math.sin(angle) * radius,
+      );
+
+      canvas.drawLine(center, end, axisPaint);
+    }
+
+    final dataPath = Path();
+    final points = <Offset>[];
+
+    for (var i = 0; i < count; i++) {
+      final angle = startAngle + angleStep * i;
+      final valueRadius = radius * patterns[i].value.clamp(0.0, 1.0);
+
+      final point = Offset(
+        center.dx + math.cos(angle) * valueRadius,
+        center.dy + math.sin(angle) * valueRadius,
+      );
+
+      points.add(point);
+
+      if (i == 0) {
+        dataPath.moveTo(point.dx, point.dy);
+      } else {
+        dataPath.lineTo(point.dx, point.dy);
+      }
+    }
+
+    dataPath.close();
+
+    canvas.drawPath(dataPath, areaPaint);
+    canvas.drawPath(dataPath, linePaint);
+
+    for (final point in points) {
+      canvas.drawCircle(point, 6.5, dotPaint);
+      canvas.drawCircle(
+        point,
+        9,
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.28)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2,
+      );
+    }
+
+    for (var i = 0; i < count; i++) {
+      final angle = startAngle + angleStep * i;
+      final labelRadius = radius + 34;
+
+      final labelOffset = Offset(
+        center.dx + math.cos(angle) * labelRadius,
+        center.dy + math.sin(angle) * labelRadius,
+      );
+
+      final textPainter = TextPainter(
+        text: TextSpan(
+          text: patterns[i].label,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 13,
+            fontWeight: FontWeight.w900,
+            shadows: [
+              Shadow(
+                color: Color(0x33000000),
+                blurRadius: 4,
+                offset: Offset(0, 1),
+              ),
+            ],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: 90);
+
+      textPainter.paint(
+        canvas,
+        Offset(
+          labelOffset.dx - textPainter.width / 2,
+          labelOffset.dy - textPainter.height / 2,
+        ),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RadarChartPainter oldDelegate) {
+    return oldDelegate.patterns != patterns;
+  }
 }

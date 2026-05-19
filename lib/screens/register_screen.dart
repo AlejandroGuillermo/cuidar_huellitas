@@ -369,7 +369,7 @@ class _RegisterCard extends StatelessWidget {
               ),
               const SizedBox(height: 18),
               const AuthFieldLabel(
-                title: 'Contrasena',
+                title: 'Contraseña',
                 icon: Icons.lock_outline_rounded,
               ),
               const SizedBox(height: 8),
@@ -399,7 +399,7 @@ class _RegisterCard extends StatelessWidget {
               ),
               const SizedBox(height: 18),
               const AuthFieldLabel(
-                title: 'Confirmar contrasena',
+                title: 'Confirmar contraseña',
                 icon: Icons.verified_user_outlined,
               ),
               const SizedBox(height: 8),
@@ -411,7 +411,7 @@ class _RegisterCard extends StatelessWidget {
                 onFieldSubmitted: (_) => onCrearCuenta?.call(),
                 decoration:
                     buildAuthInputDecoration(
-                      hint: 'Escribe de nuevo tu contrasena',
+                      hint: 'Escribe de nuevo tu contraseña',
                       prefixIcon: Icons.shield_outlined,
                       accentColor: AppColors.azulPrincipal,
                       fillColor: const Color(0xFFF7FAFF),
@@ -429,7 +429,7 @@ class _RegisterCard extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               const AuthFieldLabel(
-                title: 'Quien usara la cuenta?',
+                title: 'Confirma que eres un cuidador',
                 icon: Icons.groups_2_outlined,
               ),
               const SizedBox(height: 12),
@@ -529,22 +529,22 @@ class _RoleSelector extends StatelessWidget {
         Expanded(
           child: _RoleButton(
             icono: Icons.child_care_outlined,
-            titulo: 'Niño(a)',
+            titulo: 'Cuidador',
             subtitulo: 'Cuenta para jugar',
             seleccionado: tipoSeleccionado == 'niño',
             onTap: () => onSeleccionado('niño'),
           ),
         ),
         const SizedBox(width: 14),
-        Expanded(
-          child: _RoleButton(
-            icono: Icons.supervisor_account_outlined,
-            titulo: 'Tutor',
-            subtitulo: 'Acompaña el cuidado',
-            seleccionado: tipoSeleccionado == 'tutor',
-            onTap: () => onSeleccionado('tutor'),
-          ),
-        ),
+        //Expanded(
+          //child: _RoleButton(
+            //icono: Icons.supervisor_account_outlined,
+            //titulo: 'Tutor',
+            //subtitulo: 'Acompaña el cuidado',
+            //seleccionado: tipoSeleccionado == 'tutor',
+            //onTap: () => onSeleccionado('tutor'),
+          //),
+        //),
       ],
     );
   }

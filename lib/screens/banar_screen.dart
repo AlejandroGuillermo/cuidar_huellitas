@@ -6,6 +6,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
 import '../application/cubits/pet_world_cubit.dart';
+import '../Models/mascota_model.dart';
 import '../core/app_colors.dart';
 import '../core/personality_config.dart';
 import '../cubit/pet_cubit.dart';
@@ -36,6 +37,7 @@ class BanarScreen extends StatefulWidget {
 
 class _BanarScreenState extends State<BanarScreen> {
   static const int _maxBathEscapes = 3;
+  static const Duration _bathFreshnessDuration = Duration(minutes: 15);
 
   bool _applyingBathReward = false;
   bool _bathCompletedInTub = false;
@@ -43,6 +45,7 @@ class _BanarScreenState extends State<BanarScreen> {
   Timer? _bathMovementTimer;
   Timer? _bathCalmTimer;
   Timer? _bathEscapeRoamTimer;
+  Timer? _bathFreshnessTimer;
   double _escapedPetOffsetX = 0;
   double _escapedPetOffsetY = 0;
   bool _isDisposing = false;
@@ -83,7 +86,9 @@ class _BanarScreenState extends State<BanarScreen> {
               _petInTub &&
               _canUseBathTools &&
               (tool.label != 'Toalla' ||
-                  (_canUseTowel && !_bathCompletedInTub)),
+                  (_canUseTowel &&
+                      !_bathCompletedInTub &&
+                      !_bathFreshnessActive)),
           resetNonce: _toolResetNonce,
           iconBuilder: (size, enabled) => _buildToolIcon(
             tool,
@@ -104,6 +109,7 @@ class _BanarScreenState extends State<BanarScreen> {
   void initState() {
     super.initState();
     _banarCubit = BanarCubit();
+    _startBathFreshnessTicker();
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncWorldEntry());
   }
 
@@ -154,6 +160,102 @@ class _BanarScreenState extends State<BanarScreen> {
   bool get _requiresCalmingBeforeTools => _isBathDifficult;
   bool get _canUseBathTools => !_requiresCalmingBeforeTools || _petIsCalm;
   bool get _canUseTowel => _bathState.canUseTowel;
+  bool get _bathFreshnessActive =>
+      context.read<PetCubit>().state.mascota?.buffBanoActivo ?? false;
+
+  int _bathFreshnessPercent(MascotaModel? mascota) {
+    final expira = mascota?.buffBanoExpira;
+    if (expira == null) return 0;
+
+    final restanteMs = expira.difference(DateTime.now()).inMilliseconds;
+    if (restanteMs <= 0) return 0;
+
+    final totalMs = _bathFreshnessDuration.inMilliseconds;
+    return ((restanteMs / totalMs) * 100).round().clamp(0, 100);
+  }
+
+  String _bathFreshnessMessage(MascotaModel? mascota) {
+    final percent = _bathFreshnessPercent(mascota);
+    if (percent <= 0) {
+      return 'La mascota ya puede volver a bañarse.';
+    }
+    return 'Tu mascota sigue limpia y secandose.';
+  }
+
+  String _bathFreshnessRemainingText(MascotaModel? mascota) {
+    final expira = mascota?.buffBanoExpira;
+    if (expira == null) return '0m 0s';
+
+    final restante = expira.difference(DateTime.now());
+    if (restante <= Duration.zero) return '0m 0s';
+
+    final minutes = restante.inMinutes;
+    final seconds = restante.inSeconds % 60;
+    return '${minutes}m ${seconds.toString().padLeft(2, '0')}s';
+  }
+
+  Widget _buildBathBuffBanner(MascotaModel mascota) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFB7E6F7), width: 1.4),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: const Color(0xFFDFF5FF),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.auto_awesome,
+              color: Color(0xFF4FA7CE),
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Buff de baño: ${_bathFreshnessRemainingText(mascota)}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF3D6F86),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'Sin suciedad y secado protegidos. La limpieza no baja mientras dure.',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF6F8B98),
+                    height: 1.2,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
   bool get _showEscapeHint =>
       !_petInTub &&
       _bathStatusMessage == 'Tu mascota se escapo de la bañera.';
@@ -163,9 +265,18 @@ class _BanarScreenState extends State<BanarScreen> {
     _banarCubit.setDraggingBathTool(value);
   }
 
+  void _startBathFreshnessTicker() {
+    _bathFreshnessTimer?.cancel();
+    _bathFreshnessTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() {});
+    });
+  }
+
   @override
   void dispose() {
     _isDisposing = true;
+    _bathFreshnessTimer?.cancel();
     _stopBathPersonalityEffects();
     _stopBathEscapeRoaming(resetPosition: false);
     _banarCubit.close();
@@ -414,6 +525,9 @@ class _BanarScreenState extends State<BanarScreen> {
     final canShowPet =
         !worldState.isLocationLocked ||
         worldState.location == PetLocation.banar;
+    final locationHintText = canShowPet
+        ? null
+        : 'Tu mascota esta en ${_locationLabel(worldState.location)}.';
 
     if (!canShowPet && _petInTub) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -473,16 +587,33 @@ class _BanarScreenState extends State<BanarScreen> {
                           top: false,
                           child: Column(
                             children: [
-                              ActionScreenHeader(
-                                icon: Icons.bathtub,
-                                title: 'Hora del bano',
-                                subtitlePrefix: 'Vamos a dejar limpio a',
-                                statLabel: 'Limpieza:',
-                                statSelector: (mascota) => mascota.nivelLimpieza,
-                                barColors: const [
-                                  Color(0xFF8AD8FF),
-                                  AppColors.nivelLimpieza,
-                                ],
+                              Builder(
+                                builder: (context) {
+                                  final mascota =
+                                      context.watch<PetCubit>().state.mascota;
+                                  final showBathBuff =
+                                      mascota?.buffBanoActivo ?? false;
+
+                                  return Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      ActionScreenHeader(
+                                        icon: Icons.bathtub,
+                                        title: 'Hora del bano',
+                                        subtitlePrefix: 'Vamos a dejar limpio a',
+                                        statLabel: 'Limpieza:',
+                                        statSelector: (mascota) =>
+                                            mascota.nivelLimpieza,
+                                        barColors: const [
+                                          Color(0xFF8AD8FF),
+                                          AppColors.nivelLimpieza,
+                                        ],
+                                      ),
+                                      if (showBathBuff && mascota != null)
+                                        _buildBathBuffBanner(mascota),
+                                    ],
+                                  );
+                                },
                               ),
                               Expanded(
                                 child: LayoutBuilder(
@@ -507,6 +638,39 @@ class _BanarScreenState extends State<BanarScreen> {
                   bottom: 16,
                   child: _buildPawMapButton(),
                 ),
+                if (locationHintText != null)
+                  Positioned(
+                    left: 20,
+                    right: 20,
+                    bottom: 90,
+                    child: IgnorePointer(
+                      child: Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.88),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: const Color(0xFFB7D7E7),
+                              width: 1.2,
+                            ),
+                          ),
+                          child: Text(
+                            locationHintText,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF56707D),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           );
@@ -525,7 +689,21 @@ class _BanarScreenState extends State<BanarScreen> {
     );
   }
 
+  String _locationLabel(PetLocation location) {
+    return switch (location) {
+      PetLocation.home => 'Home',
+      PetLocation.alimentar => 'el Comedor',
+      PetLocation.jugar => 'la Sala de Juegos',
+      PetLocation.dormir => 'la Habitacion',
+      PetLocation.curar => 'Curar',
+      PetLocation.banar => 'la Banera',
+    };
+  }
+
   Widget _buildBathroom(Size size, bool canShowPet) {
+    final mascota = context.watch<PetCubit>().state.mascota;
+    final bathFreshnessPercent = _bathFreshnessPercent(mascota);
+    final bathFreshnessActive = bathFreshnessPercent > 0;
     final floorHeight = size.height * 0.34;
     final petFloorBottom = floorHeight * 0.14;
     final tubBottomCollapsed = floorHeight - 28;
@@ -542,7 +720,8 @@ class _BanarScreenState extends State<BanarScreen> {
         .toDouble();
     final tubHeight = tubWidth * 0.62;
 
-    final showToolBar = _petInTub && canShowPet && tubWidth >= 300;
+    final showToolBar =
+        _petInTub && canShowPet && tubWidth >= 300 && !bathFreshnessActive;
     final availableToolBarWidth = (size.width - 24).clamp(0.0, 420.0);
     final toolBarWidth = (size.width * 0.9)
         .clamp(0.0, availableToolBarWidth)
@@ -561,12 +740,13 @@ class _BanarScreenState extends State<BanarScreen> {
         .toDouble();
     final showBathStatus =
         (_bathStatusMessage != null && !_showEscapeHint) ||
+        bathFreshnessActive ||
         (_petInTub &&
             (_soapProgress > 0 ||
                 _scrubProgress > 0 ||
                 (_requiresCalmingBeforeTools && !_petIsCalm)));
-    final bathStatusBottom = (tubBottom - 54).clamp(12.0, size.height * 0.18);
-    final showProgressPanel = canShowPet && _petInTub;
+    final bathStatusBottom = (tubBottom - 18).clamp(12.0, size.height * 0.25);
+    final showProgressPanel = canShowPet && (_petInTub || bathFreshnessActive);
 
     return BathSceneWidget(
       floorHeight: floorHeight,
@@ -574,10 +754,10 @@ class _BanarScreenState extends State<BanarScreen> {
       showProgressPanel: showProgressPanel,
       progressPanel: BathProgressPanelWidget(
         size: size,
-        soapProgress: _soapProgress,
-        scrubProgress: _scrubProgress,
-        rinseProgress: _rinseProgress,
-        towelProgress: _towelProgress,
+        soapProgress: bathFreshnessActive ? 0 : _soapProgress,
+        scrubProgress: bathFreshnessActive ? bathFreshnessPercent : _scrubProgress,
+        rinseProgress: bathFreshnessActive ? 0 : _rinseProgress,
+        towelProgress: bathFreshnessActive ? bathFreshnessPercent : _towelProgress,
       ),
       showToolBar: showToolBar,
       toolBarLeft: toolBarLeft,
@@ -596,10 +776,13 @@ class _BanarScreenState extends State<BanarScreen> {
       showBathStatus: showBathStatus,
       bathStatusBottom: bathStatusBottom,
       bathStatus: BathStatusWidget(
-        text: _bathStatusMessage ??
-            _bathState.buildStepStatusText(
-              requiresCalmingBeforeTools: _requiresCalmingBeforeTools,
-            ),
+        text:
+            _bathStatusMessage ??
+            (bathFreshnessActive
+                ? _bathFreshnessMessage(mascota)
+                : _bathState.buildStepStatusText(
+                    requiresCalmingBeforeTools: _requiresCalmingBeforeTools,
+                  )),
       ),
       wall: _buildWall(),
       floor: _buildFloor(),
@@ -777,12 +960,18 @@ class _BanarScreenState extends State<BanarScreen> {
   }
 
   Widget _buildTub(bool canShowPet) {
+    final mascota = context.watch<PetCubit>().state.mascota;
+    final bathFreshnessActive = _bathFreshnessPercent(mascota) > 0;
+
     return BathTubWidget(
       petInTub: _petInTub,
       canShowPet: canShowPet,
       draggingBathTool: _draggingBathTool,
       showEscapeHint: _showEscapeHint,
       escapeHintText: _showEscapeHint ? _bathStatusMessage : null,
+      idleHintText: bathFreshnessActive
+          ? _bathFreshnessMessage(mascota)
+          : null,
       onTapTub: () {
         if (!canShowPet) {
           ScaffoldMessenger.of(context)
@@ -797,6 +986,17 @@ class _BanarScreenState extends State<BanarScreen> {
         }
         if (_petInTub) {
           _sacarMascotaDeLaBanera(clearStatus: true);
+          return;
+        }
+        if (bathFreshnessActive) {
+          ScaffoldMessenger.of(context)
+            ..clearSnackBars()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(_bathFreshnessMessage(mascota)),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
           return;
         }
         _meterMascotaEnLaBanera(resetProgress: !_hasBathProgress);

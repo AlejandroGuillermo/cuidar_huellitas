@@ -297,7 +297,7 @@ class _TiendaScreenState extends State<TiendaScreen> {
             children: [
               _TopHeader(
                 title: 'Tienda',
-                subtitle: 'Compra items del usuario y equipa a tu mascota',
+                subtitle: 'Compra comida, botiquines y equipa a tu mascota',
                 coins: _coins,
               ),
               Expanded(
@@ -393,13 +393,14 @@ class _TiendaScreenState extends State<TiendaScreen> {
                                   ? 'Comprar'
                                   : (equipped ? 'Quitar' : 'Poner en cabeza');
 
-                              return _ShopItemCard(
+                              return _AccessoryShopItemCard(
                                 emoji: item.emoji,
                                 name: item.name,
                                 price: item.price,
                                 stockLabel: stockLabel,
                                 buttonLabel: label,
                                 loading: _isBuying || _isEquipping,
+                                owned: owned,
                                 onPressed: !owned
                                     ? () => _buyCosmetic(item)
                                     : (equipped
@@ -631,6 +632,136 @@ class _ShopItemCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _AccessoryShopItemCard extends StatelessWidget {
+  final String emoji;
+  final String name;
+  final int price;
+  final String stockLabel;
+  final String buttonLabel;
+  final bool loading;
+  final bool owned;
+  final VoidCallback onPressed;
+
+  const _AccessoryShopItemCard({
+    required this.emoji,
+    required this.name,
+    required this.price,
+    required this.stockLabel,
+    required this.buttonLabel,
+    required this.loading,
+    required this.owned,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: owned ? const Color(0xFFF1F1F1) : Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: owned
+                  ? const Color(0xFFD7D7D7)
+                  : Colors.black.withValues(alpha: 0.05),
+            ),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x0F000000),
+                blurRadius: 12,
+                offset: Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _EmojiBox(
+                emoji: emoji,
+                backgroundColor: owned
+                    ? const Color(0xFFE0E0E0)
+                    : const Color(0xFFF5F8FF),
+                size: 56,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                name,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: owned
+                      ? const Color(0xFF6E6E6E)
+                      : AppColors.textoPrincipal,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '🪙 $price',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: owned
+                      ? const Color(0xFF7F7F7F)
+                      : AppColors.doradoTexto,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                stockLabel,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: owned ? const Color(0xFF808080) : Colors.black54,
+                ),
+              ),
+              const Spacer(),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: loading ? null : onPressed,
+                  style: ElevatedButton.styleFrom(
+                    elevation: 0,
+                    backgroundColor: owned
+                        ? const Color(0xFF9E9E9E)
+                        : AppColors.azulPrincipal,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                  ),
+                  child: Text(
+                    buttonLabel,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (owned)
+          Positioned(
+            top: 10,
+            right: 10,
+            child: Container(
+              width: 22,
+              height: 22,
+              decoration: const BoxDecoration(
+                color: Color(0xFF7E7E7E),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.check, size: 15, color: Colors.white),
+            ),
+          ),
+      ],
     );
   }
 }

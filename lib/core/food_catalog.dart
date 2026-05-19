@@ -28,7 +28,7 @@ class FoodCatalog {
       emoji: '🥩',
       name: 'Carne',
       hungerPoints: 30,
-      price: 25,
+      price: 33,
       color: Color(0xFFF07A94),
     ),
     FoodCatalogItem(
@@ -36,7 +36,7 @@ class FoodCatalog {
       emoji: '🍖',
       name: 'Hueso',
       hungerPoints: 25,
-      price: 20,
+      price: 27,
       color: Color(0xFFA3FF88),
     ),
     FoodCatalogItem(
@@ -44,7 +44,7 @@ class FoodCatalog {
       emoji: '🥕',
       name: 'Zanahoria',
       hungerPoints: 15,
-      price: 12,
+      price: 16,
       color: Color(0xFF8AE670),
     ),
     FoodCatalogItem(
@@ -52,7 +52,7 @@ class FoodCatalog {
       emoji: '🐟',
       name: 'Pescado',
       hungerPoints: 28,
-      price: 22,
+      price: 29,
       color: Color(0xFF708BE6),
     ),
     FoodCatalogItem(
@@ -60,7 +60,7 @@ class FoodCatalog {
       emoji: '🍗',
       name: 'Pollo',
       hungerPoints: 26,
-      price: 21,
+      price: 28,
       color: Color(0xFF8AA2FF),
     ),
     FoodCatalogItem(
@@ -68,7 +68,7 @@ class FoodCatalog {
       emoji: '🥛',
       name: 'Leche',
       hungerPoints: 10,
-      price: 10,
+      price: 13,
       color: Color(0xFFB5E8FF),
     ),
     FoodCatalogItem(
@@ -76,7 +76,7 @@ class FoodCatalog {
       emoji: '🟤',
       name: 'Croquetas',
       hungerPoints: 7,
-      price: 8,
+      price: 11,
       color: Color(0xFFB68E5C),
     ),
     FoodCatalogItem(
@@ -84,7 +84,7 @@ class FoodCatalog {
       emoji: '🍪',
       name: 'Galleta',
       hungerPoints: 7,
-      price: 8,
+      price: 11,
       color: Color(0xFFD4A96A),
     ),
   ];

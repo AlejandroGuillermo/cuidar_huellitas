@@ -6,6 +6,7 @@ class BathTubWidget extends StatelessWidget {
   final bool draggingBathTool;
   final bool showEscapeHint;
   final String? escapeHintText;
+  final String? idleHintText;
   final VoidCallback onTapTub;
   final Widget Function(double tubWidth) buildTubLeg;
   final Widget Function(double tubWidth, {int delay}) buildDrip;
@@ -18,6 +19,7 @@ class BathTubWidget extends StatelessWidget {
     required this.draggingBathTool,
     required this.showEscapeHint,
     required this.escapeHintText,
+    this.idleHintText,
     required this.onTapTub,
     required this.buildTubLeg,
     required this.buildDrip,

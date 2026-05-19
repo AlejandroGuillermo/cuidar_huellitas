@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '../core/cosmetic_catalog.dart';
+import '../cubit/pet_cubit.dart';
+import '../data/repositories/inventory_repository.dart';
 
 class ArmarioWidget extends StatefulWidget {
   final double maxHeight;
@@ -10,8 +15,11 @@ class ArmarioWidget extends StatefulWidget {
 
 class _ArmarioWidgetState extends State<ArmarioWidget>
     with TickerProviderStateMixin {
+  final InventoryRepository _inventoryRepository = InventoryRepository();
   bool _isOpen = false;
   bool _busy = false;
+  bool _loadingItems = false;
+  Map<String, bool> _ownedCosmetics = const {};
 
   late final AnimationController _doorCtrl;
   late final AnimationController _itemsCtrl;
@@ -53,6 +61,7 @@ class _ArmarioWidgetState extends State<ArmarioWidget>
     _busy = true;
 
     if (!_isOpen) {
+      await _loadOwnedAccessories();
       _itemsCtrl.reverse();
       await _doorCtrl.forward();
       await Future.delayed(const Duration(milliseconds: 80));
@@ -70,24 +79,179 @@ class _ArmarioWidgetState extends State<ArmarioWidget>
     _busy = false;
   }
 
+  Future<void> _closeIfOpen() async {
+    if (!_isOpen || _busy) return;
+    await _toggle();
+  }
+
+  Future<void> _loadOwnedAccessories() async {
+    final userId = _inventoryRepository.currentUserId;
+    if (userId == null) return;
+
+    if (mounted) {
+      setState(() => _loadingItems = true);
+    }
+
+    try {
+      final cosmetics = await _inventoryRepository.loadCosmeticsInventory(userId);
+      if (!mounted) return;
+      setState(() => _ownedCosmetics = cosmetics.poseidos);
+    } finally {
+      if (mounted) {
+        setState(() => _loadingItems = false);
+      }
+    }
+  }
+
+  Future<void> _onAccessoryTap(CosmeticCatalogItem item) async {
+    final petCubit = context.read<PetCubit>();
+    final currentItemId = petCubit.state.mascota?.itemCabezaId ?? '';
+    if (currentItemId == item.id) {
+      await petCubit.quitarItemCabeza();
+      return;
+    }
+    await petCubit.equiparItemCabeza(item.id);
+  }
+
   @override
   Widget build(BuildContext context) {
     final h = widget.maxHeight.clamp(110.0, 350.0);
     final w = h * 0.74;
 
-    return GestureDetector(
-      onTap: _toggle,
-      child: SizedBox(
-        width: w,
-        height: h,
-        child: AnimatedBuilder(
-          animation: Listenable.merge([_doorAnim, _itemsAnim]),
-          builder: (_, _) => CustomPaint(
-            painter: _ArmarioPainter(
-              doorOpen: _doorAnim.value,
-              itemsOpacity: _itemsAnim.value,
+    return TapRegion(
+      onTapOutside: (_) => _closeIfOpen(),
+      child: GestureDetector(
+        onTap: _toggle,
+        child: SizedBox(
+          width: w,
+          height: h,
+          child: AnimatedBuilder(
+            animation: Listenable.merge([_doorAnim, _itemsAnim]),
+            builder: (_, _) => Stack(
+              children: [
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: _ArmarioPainter(
+                      doorOpen: _doorAnim.value,
+                      itemsOpacity: _itemsAnim.value,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: w * 0.10,
+                  top: h * 0.08,
+                  width: w * 0.80,
+                  height: h * 0.78,
+                  child: IgnorePointer(
+                    ignoring: _itemsAnim.value < 0.95,
+                    child: Opacity(
+                      opacity: _itemsAnim.value,
+                      child: _ArmarioAccessoriesPanel(
+                        loading: _loadingItems,
+                        ownedCosmetics: _ownedCosmetics,
+                        onTapItem: _onAccessoryTap,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ArmarioAccessoriesPanel extends StatelessWidget {
+  final bool loading;
+  final Map<String, bool> ownedCosmetics;
+  final ValueChanged<CosmeticCatalogItem> onTapItem;
+
+  const _ArmarioAccessoriesPanel({
+    required this.loading,
+    required this.ownedCosmetics,
+    required this.onTapItem,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final items = CosmeticCatalog.items
+        .where((item) => ownedCosmetics[item.id] ?? false)
+        .toList();
+    final equippedItemId =
+        context.watch<PetCubit>().state.mascota?.itemCabezaId ?? '';
+
+    if (loading) {
+      return const Center(
+        child: SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.2,
+            color: Color(0xFFC8A060),
+          ),
+        ),
+      );
+    }
+
+    if (items.isEmpty) {
+      return const Center(
+        child: Text(
+          'Sin accesorios',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Color(0xFFB89A7A),
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      );
+    }
+
+    return Align(
+      alignment: Alignment.topCenter,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.only(top: 10, left: 2, right: 2, bottom: 8),
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 10,
+          runSpacing: 12,
+          children: items.map((item) {
+            final equipped = item.id == equippedItemId;
+            return GestureDetector(
+              onTap: () => onTapItem(item),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: equipped
+                      ? const Color(0xFF6A4A2D)
+                      : const Color(0xFF2A1810).withValues(alpha: 0.88),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: equipped
+                        ? const Color(0xFFFFD54F)
+                        : const Color(0xFF8B5E3C),
+                    width: equipped ? 1.8 : 1.1,
+                  ),
+                  boxShadow: equipped
+                      ? const [
+                          BoxShadow(
+                            color: Color(0x55FFD54F),
+                            blurRadius: 8,
+                            spreadRadius: 1,
+                          ),
+                        ]
+                      : const [],
+                ),
+                child: Center(
+                  child: Text(item.emoji, style: const TextStyle(fontSize: 26)),
+                ),
+              ),
+            );
+          }).toList(),
         ),
       ),
     );

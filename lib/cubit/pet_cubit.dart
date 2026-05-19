@@ -38,6 +38,7 @@ class PetCubit extends Cubit<PetState> {
   String? _botiquinError;
 
   static const Duration _deterioroIntervalo = Duration(minutes: 30);
+  static const Duration _buffBanoDuracion = Duration(minutes: 15);
   static const Duration _descansoIntervalo = Duration(seconds: 30);
   static const Duration _platoPasoIntervalo = Duration(seconds: 6);
   static const int _maxTicksPlatoAusencia = 48; // 24h maximo
@@ -47,6 +48,18 @@ class PetCubit extends Cubit<PetState> {
   static const int _umbralAfectoSalud = 10;
   static const int _umbralEnergiaBaja = 12;
   static const int _ticksEnergiaBajaParaDano = 2;
+
+  int _resolverLimpiezaConBuff(
+    MascotaModel mascota,
+    int propuesta, {
+    DateTime? instante,
+  }) {
+    final clamped = propuesta.clamp(0, 100).toInt();
+    final ahora = instante ?? DateTime.now();
+    final buffActivo = mascota.buffBanoExpira?.isAfter(ahora) ?? false;
+    if (!buffActivo) return clamped;
+    return max(clamped, mascota.nivelLimpieza);
+  }
   static const int _defaultMissionRewardCoins = 5;
   static const int _jugarSuciedadBase = 4;
   static const String _bathMissionId = 'mision_bano';
@@ -76,6 +89,65 @@ class PetCubit extends Cubit<PetState> {
 
   int _umbralBuffPorDescanso(String tipoDescanso) {
     return tipoDescanso == 'siesta' ? 10 : 20;
+  }
+
+  DateTime _siguienteHorario(DateTime from, int hour, int minute) {
+    var candidate = DateTime(from.year, from.month, from.day, hour, minute);
+    if (!candidate.isAfter(from)) {
+      candidate = candidate.add(const Duration(days: 1));
+    }
+    return candidate;
+  }
+
+  DateTime _despertarNocturnoProgramado({
+    required DateTime inicioDescanso,
+    required bool cortinasAbiertas,
+  }) {
+    final manana = _siguienteHorario(inicioDescanso, 6, 0);
+    if (!cortinasAbiertas) return manana;
+
+    final amanecer = _siguienteHorario(inicioDescanso, 4, 30);
+    return amanecer.isBefore(manana) ? amanecer : manana;
+  }
+
+  int _energiaRecuperadaEnNoche({
+    required DateTime inicioDescanso,
+    required DateTime hasta,
+  }) {
+    if (!hasta.isAfter(inicioDescanso)) return 0;
+
+    var energia = 0;
+
+    if (inicioDescanso.hour >= 20) {
+      final medianoche = DateTime(
+        inicioDescanso.year,
+        inicioDescanso.month,
+        inicioDescanso.day,
+      ).add(const Duration(days: 1));
+      final finTramoRapido = hasta.isBefore(medianoche) ? hasta : medianoche;
+      final segundosRapidos = finTramoRapido
+          .difference(inicioDescanso)
+          .inSeconds;
+      if (segundosRapidos > 0) {
+        energia += (segundosRapidos ~/ 30) * 2;
+      }
+    }
+
+    final inicioTramoLento = inicioDescanso.hour >= 20
+        ? DateTime(
+            inicioDescanso.year,
+            inicioDescanso.month,
+            inicioDescanso.day,
+          ).add(const Duration(days: 1))
+        : inicioDescanso;
+    if (hasta.isAfter(inicioTramoLento)) {
+      final segundosLentos = hasta.difference(inicioTramoLento).inSeconds;
+      if (segundosLentos > 0) {
+        energia += (segundosLentos ~/ (4 * 60)) * 2;
+      }
+    }
+
+    return energia;
   }
 
   // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -144,18 +216,34 @@ class PetCubit extends Cubit<PetState> {
         mascota.inicioDescanso ?? (esNoche ? null : mascota.ultimaInteraccion);
     if (referenciaInicio == null) return;
 
-    final minutosTranscurridos = DateTime.now()
+    final ahora = DateTime.now();
+    final despertarPorHorario = esNoche &&
+        !ahora.isBefore(
+          _despertarNocturnoProgramado(
+            inicioDescanso: referenciaInicio,
+            cortinasAbiertas: mascota.cortinasAbiertas,
+          ),
+        );
+    final finRecuperacion = despertarPorHorario
+        ? _despertarNocturnoProgramado(
+            inicioDescanso: referenciaInicio,
+            cortinasAbiertas: mascota.cortinasAbiertas,
+          )
+        : ahora;
+
+    final minutosTranscurridos = finRecuperacion
         .difference(referenciaInicio)
         .inMinutes
         .clamp(0, 600)
         .toInt();
 
-    // Noche: recuperaciÃ³n fuerte. Siesta: 3 energÃ­a cada 15 min (=1 cada 5 min).
+    // Noche: rapida antes de medianoche y lenta en madrugada. Siesta: 1 cada 2 min.
     final energiaGanada = esNoche
-        ? (minutosTranscurridos * 2.0)
-              .clamp(0, 100 - mascota.energiaAlAcostar)
-              .round()
-        : (minutosTranscurridos ~/ 5)
+        ? _energiaRecuperadaEnNoche(
+            inicioDescanso: referenciaInicio,
+            hasta: finRecuperacion,
+          ).clamp(0, 100 - mascota.energiaAlAcostar).toInt()
+        : (minutosTranscurridos ~/ 2)
               .clamp(0, 100 - mascota.energiaAlAcostar)
               .toInt();
     final nuevaEnergia = (mascota.energiaAlAcostar + energiaGanada).clamp(
@@ -175,13 +263,13 @@ class PetCubit extends Cubit<PetState> {
     int afecto = mascota.nivelAfecto;
     if (esNoche && nuevaEnergia >= 100) {
       hambre = (hambre - 10).clamp(0, 100);
-      limpieza = (limpieza - 5).clamp(0, 100);
+      limpieza = _resolverLimpiezaConBuff(mascota, limpieza - 5);
     }
     if (!esNoche && nuevaEnergia >= 100) {
       afecto = (afecto + 5).clamp(0, 100); // bonus siesta completa
     }
 
-    final estadoFinal = nuevaEnergia >= 100
+    final estadoFinal = nuevaEnergia >= 100 || despertarPorHorario
         ? 'despierto'
         : mascota.estadoDescanso;
 
@@ -196,11 +284,17 @@ class PetCubit extends Cubit<PetState> {
       buffEnergia: buff || mascota.buffEnergia,
       buffExpira: buffExpira,
       estadoDescanso: estadoFinal,
+      tipoDescanso: estadoFinal == 'despierto' ? '' : mascota.tipoDescanso,
       clearInicioDescanso: estadoFinal == 'despierto',
       ultimaInteraccion: DateTime.now(),
     );
 
-    emit(state.copyWith(mascota: despues));
+    emit(
+      state.copyWith(
+        mascota: despues,
+        tapsDespertar: estadoFinal == 'despierto' ? 0 : state.tapsDespertar,
+      ),
+    );
     await _guardarDescansoEnFirestore(antes: mascota, despues: despues);
     await _guardarEnFirestore(
       antes: mascota,
@@ -211,6 +305,7 @@ class PetCubit extends Cubit<PetState> {
         'energia_recuperada': energiaGanada,
         'buff_obtenido': buff,
         'tipo_descanso': mascota.tipoDescanso,
+        'despertar_por_horario': despertarPorHorario,
       },
     );
     await _sincronizarMisionBano(despues);
@@ -231,8 +326,14 @@ class PetCubit extends Cubit<PetState> {
     if (ticksAplicados <= 0 || mascota.estaDescansando) return;
 
     var despues = mascota;
+    var tickInstant = mascota.ultimaInteraccion;
     for (var i = 0; i < ticksAplicados; i++) {
-      despues = _calcularDeterioro(despues, factorExtra: ausenciaFactor);
+      tickInstant = tickInstant.add(_deterioroIntervalo);
+      despues = _calcularDeterioro(
+        despues,
+        factorExtra: ausenciaFactor,
+        instante: tickInstant,
+      );
     }
 
     emit(state.copyWith(mascota: despues));
@@ -404,6 +505,7 @@ class PetCubit extends Cubit<PetState> {
 
     final esNoche = mascota.tipoDescanso == 'noche';
     final esSiesta = mascota.tipoDescanso == 'siesta';
+    final ahora = DateTime.now();
 
     // Solo tick de energÃ­a si ya estÃ¡ dormida (no solo acostada en noche)
     final debeRecuperar =
@@ -411,23 +513,40 @@ class PetCubit extends Cubit<PetState> {
     if (!debeRecuperar) return;
 
     int nuevaEnergia;
+    bool despertarPorHorario = false;
     if (esNoche) {
       // Noche: recuperaciÃ³n fuerte y continua.
-      nuevaEnergia = (mascota.nivelEnergia + 2).clamp(0, 100);
+      final inicio = mascota.inicioDescanso ?? mascota.ultimaInteraccion;
+      final despertarProgramado = _despertarNocturnoProgramado(
+        inicioDescanso: inicio,
+        cortinasAbiertas: mascota.cortinasAbiertas,
+      );
+      despertarPorHorario = !ahora.isBefore(despertarProgramado);
+      final finRecuperacion = despertarPorHorario ? despertarProgramado : ahora;
+      final energiaObjetivo =
+          (mascota.energiaAlAcostar +
+                  _energiaRecuperadaEnNoche(
+                    inicioDescanso: inicio,
+                    hasta: finRecuperacion,
+                  ))
+              .clamp(0, 100)
+              .toInt();
+      nuevaEnergia = max(mascota.nivelEnergia, energiaObjetivo);
     } else {
-      // Siesta: 3 cada 15 min (1 cada 5 min), con cÃ¡lculo por tiempo transcurrido.
+      // Siesta: 1 cada 2 min, con calculo por tiempo transcurrido.
       final inicio = mascota.inicioDescanso ?? mascota.ultimaInteraccion;
       final bloquesRecuperados =
-          DateTime.now().difference(inicio).inMinutes ~/ 5;
+          ahora.difference(inicio).inMinutes ~/ 2;
       final energiaObjetivo = (mascota.energiaAlAcostar + bloquesRecuperados)
           .clamp(0, 100)
           .toInt();
       nuevaEnergia = max(mascota.nivelEnergia, energiaObjetivo);
     }
 
-    if (nuevaEnergia == mascota.nivelEnergia) return;
+    if (nuevaEnergia == mascota.nivelEnergia && !despertarPorHorario) return;
 
     final bool lleg100 = nuevaEnergia >= 100;
+    final bool despertarAutomatico = lleg100 || despertarPorHorario;
     int hambre = mascota.nivelHambre;
     int limpieza = mascota.nivelLimpieza;
     int afecto = mascota.nivelAfecto;
@@ -435,7 +554,7 @@ class PetCubit extends Cubit<PetState> {
     if (lleg100) {
       if (esNoche) {
         hambre = (hambre - 10).clamp(0, 100);
-        limpieza = (limpieza - 5).clamp(0, 100);
+        limpieza = _resolverLimpiezaConBuff(mascota, limpieza - 5);
       } else {
         afecto = (afecto + 5).clamp(0, 100);
       }
@@ -454,22 +573,28 @@ class PetCubit extends Cubit<PetState> {
       ticksEnergiaBaja: nuevaEnergia < _umbralEnergiaBaja
           ? mascota.ticksEnergiaBaja
           : 0,
-      estadoDescanso: lleg100 ? 'despierto' : mascota.estadoDescanso,
-      clearInicioDescanso: lleg100,
+      estadoDescanso: despertarAutomatico ? 'despierto' : mascota.estadoDescanso,
+      tipoDescanso: despertarAutomatico ? '' : mascota.tipoDescanso,
+      clearInicioDescanso: despertarAutomatico,
       buffEnergia: buff || mascota.buffEnergia,
       buffExpira: buff && !mascota.buffActivo
-          ? DateTime.now().add(const Duration(days: 1))
+          ? ahora.add(const Duration(days: 1))
           : mascota.buffExpira,
-      ultimaInteraccion: DateTime.now(),
+      ultimaInteraccion: ahora,
     );
 
-    emit(state.copyWith(mascota: despues));
+    emit(
+      state.copyWith(
+        mascota: despues,
+        tapsDespertar: despertarAutomatico ? 0 : state.tapsDespertar,
+      ),
+    );
     _sincronizarDescansoOnline();
 
     // Guardar en Firestore solo cada 4 ticks (~2 min) para no saturar
-    if (_random.nextInt(4) == 0 || lleg100) {
+    if (_random.nextInt(4) == 0 || despertarAutomatico) {
       await _guardarDescansoEnFirestore(antes: mascota, despues: despues);
-      if (lleg100) {
+      if (despertarAutomatico) {
         await _guardarEnFirestore(
           antes: mascota,
           despues: despues,
@@ -477,6 +602,7 @@ class PetCubit extends Cubit<PetState> {
           extras: {
             'tipo_descanso': mascota.tipoDescanso,
             'buff_obtenido': buff,
+            'despertar_por_horario': despertarPorHorario,
           },
         );
       }
@@ -592,6 +718,7 @@ class PetCubit extends Cubit<PetState> {
 
     final despues = mascota.copyWith(
       estadoDescanso: 'despierto',
+      tipoDescanso: '',
       clearInicioDescanso: true,
     );
     emit(state.copyWith(mascota: despues));
@@ -1657,6 +1784,9 @@ class PetCubit extends Cubit<PetState> {
         'deterioro_acelerado': despues.deterioroAcelerado,
         'anomalia_detectada': despues.anomaliaDetectada,
         'anomaliaActiva': despues.anomaliaDetectada,
+        'buff_bano_expira': despues.buffBanoExpira != null
+            ? Timestamp.fromDate(despues.buffBanoExpira!)
+            : null,
       };
 
       switch (accion) {
@@ -1667,7 +1797,9 @@ class PetCubit extends Cubit<PetState> {
           updateData['ultimo_juego'] = Timestamp.now();
           break;
         case 'banar':
-          updateData['ultimo_bano'] = Timestamp.now();
+          updateData['ultimo_bano'] = despues.ultimoBano != null
+              ? Timestamp.fromDate(despues.ultimoBano!)
+              : Timestamp.now();
           break;
         case 'curar':
           updateData['ultima_curacion'] = Timestamp.now();
@@ -1901,7 +2033,7 @@ class PetCubit extends Cubit<PetState> {
     if (antes == null || puntos <= 0) return;
 
     final despues = antes.copyWith(
-      nivelLimpieza: (antes.nivelLimpieza - puntos).clamp(0, 100),
+      nivelLimpieza: _resolverLimpiezaConBuff(antes, antes.nivelLimpieza - puntos),
       ultimaInteraccion: DateTime.now(),
     );
 
@@ -2013,9 +2145,9 @@ class PetCubit extends Cubit<PetState> {
                       (mod?.jugarHambreCosto ?? 1.0)))
               .round()
               .clamp(0, 100),
-      nivelLimpieza: (antes.nivelLimpieza - suciedadAlJugar).round().clamp(
-        0,
-        100,
+      nivelLimpieza: _resolverLimpiezaConBuff(
+        antes,
+        (antes.nivelLimpieza - suciedadAlJugar).round(),
       ),
       nivelSalud: (antes.nivelSalud + (mod?.jugarSaludBonus ?? 0.0))
           .round()
@@ -2064,6 +2196,7 @@ class PetCubit extends Cubit<PetState> {
       ),
       ultimaInteraccion: DateTime.now(),
       ultimoBano: DateTime.now(),
+      buffBanoExpira: DateTime.now().add(_buffBanoDuracion),
     );
 
     emit(state.copyWith(mascota: despues));
@@ -2455,6 +2588,7 @@ class PetCubit extends Cubit<PetState> {
   MascotaModel _calcularDeterioro(
     MascotaModel mascota, {
     double factorExtra = 1.0,
+    DateTime? instante,
   }) {
     final config = PersonalityRegistry.get(mascota.rasgo);
     final dec = config?.deterioro;
@@ -2477,13 +2611,15 @@ class PetCubit extends Cubit<PetState> {
                     factor))
             .round()
             .clamp(0, 100);
-    final limpiezaNueva =
-        (mascota.nivelLimpieza -
-                (BaseActionValues.deterioroLimpieza *
-                    (dec?.limpieza ?? 1.0) *
-                    factor))
-            .round()
-            .clamp(0, 100);
+    final limpiezaNueva = _resolverLimpiezaConBuff(
+      mascota,
+      (mascota.nivelLimpieza -
+              (BaseActionValues.deterioroLimpieza *
+                  (dec?.limpieza ?? 1.0) *
+                  factor))
+          .round(),
+      instante: instante,
+    );
     final afectoNuevo =
         (mascota.nivelAfecto -
                 (BaseActionValues.deterioroAfecto *

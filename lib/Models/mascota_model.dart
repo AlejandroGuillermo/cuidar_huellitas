@@ -47,6 +47,7 @@ class MascotaModel {
     int energiaAlAcostar = 0,
     bool buffEnergia = false,
     DateTime? buffExpira,
+    DateTime? buffBanoExpira,
     bool cortinasAbiertas = true,
     int tapsParaDespetarBase = 4,
     String? inicioDescansoTipo,
@@ -97,6 +98,7 @@ class MascotaModel {
              energiaAlAcostar: energiaAlAcostar.toDouble(),
              buffEnergia: buffEnergia,
              buffExpira: buffExpira,
+             buffBanoExpira: buffBanoExpira,
              cortinasAbiertas: cortinasAbiertas,
              tapsParaDespetarBase: tapsParaDespetarBase,
              inicioDescansoTipo: inicioDescansoTipo,
@@ -183,6 +185,8 @@ class MascotaModel {
     bool? buffEnergia,
     DateTime? buffExpira,
     bool clearBuffExpira = false,
+    DateTime? buffBanoExpira,
+    bool clearBuffBanoExpira = false,
     bool? cortinasAbiertas,
     int? tapsParaDespetarBase,
     String? inicioDescansoTipo,
@@ -245,6 +249,8 @@ class MascotaModel {
       buffEnergia: buffEnergia,
       buffExpira: buffExpira,
       clearBuffExpira: clearBuffExpira,
+      buffBanoExpira: buffBanoExpira,
+      clearBuffBanoExpira: clearBuffBanoExpira,
       cortinasAbiertas: cortinasAbiertas,
       tapsParaDespetarBase: tapsParaDespetarBase,
       inicioDescansoTipo: inicioDescansoTipo,
@@ -310,6 +316,7 @@ class MascotaModel {
   int get energiaAlAcostar => runtime.energiaAlAcostar.round();
   bool get buffEnergia => runtime.buffEnergia;
   DateTime? get buffExpira => runtime.buffExpira;
+  DateTime? get buffBanoExpira => runtime.buffBanoExpira;
   bool get cortinasAbiertas => runtime.cortinasAbiertas;
   int get tapsParaDespetarBase => runtime.tapsParaDespetarBase;
   String? get inicioDescansoTipo => runtime.inicioDescansoTipo;
@@ -332,6 +339,9 @@ class MascotaModel {
 
   bool get buffActivo =>
       buffEnergia && (buffExpira?.isAfter(DateTime.now()) ?? false);
+
+  bool get buffBanoActivo =>
+      buffBanoExpira?.isAfter(DateTime.now()) ?? false;
 
   PersonalidadTipo get personalidad => PersonalidadTipo.fromString(rasgo);
 

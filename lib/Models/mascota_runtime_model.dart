@@ -24,6 +24,7 @@ class MascotaRuntimeModel {
   final double energiaAlAcostar;
   final bool buffEnergia;
   final DateTime? buffExpira;
+  final DateTime? buffBanoExpira;
   final bool cortinasAbiertas;
   final int tapsParaDespetarBase;
   final String? inicioDescansoTipo;
@@ -58,6 +59,7 @@ class MascotaRuntimeModel {
     this.energiaAlAcostar = 0,
     this.buffEnergia = false,
     this.buffExpira,
+    this.buffBanoExpira,
     this.cortinasAbiertas = true,
     this.tapsParaDespetarBase = 4,
     this.inicioDescansoTipo,
@@ -99,6 +101,7 @@ class MascotaRuntimeModel {
       energiaAlAcostar: _asDouble(data['energia_al_acostar'], 0),
       buffEnergia: data['buff_energia'] ?? false,
       buffExpira: _timestampToDate(data['buff_expira']),
+      buffBanoExpira: _timestampToDate(data['buff_bano_expira']),
       cortinasAbiertas: data['cortinas_abiertas'] ?? true,
       tapsParaDespetarBase: _asInt(data['taps_para_despertar'], 4),
       inicioDescansoTipo: data['inicio_descanso_tipo'],
@@ -160,6 +163,9 @@ class MascotaRuntimeModel {
       'buff_expira': buffExpira != null
           ? Timestamp.fromDate(buffExpira!)
           : null,
+      'buff_bano_expira': buffBanoExpira != null
+          ? Timestamp.fromDate(buffBanoExpira!)
+          : null,
       'cortinas_abiertas': cortinasAbiertas,
       'taps_para_despertar': tapsParaDespetarBase,
       'residuos_hambre_alta_desde': residuosHambreAltaDesde != null
@@ -210,6 +216,8 @@ class MascotaRuntimeModel {
     bool? buffEnergia,
     DateTime? buffExpira,
     bool clearBuffExpira = false,
+    DateTime? buffBanoExpira,
+    bool clearBuffBanoExpira = false,
     bool? cortinasAbiertas,
     int? tapsParaDespetarBase,
     String? inicioDescansoTipo,
@@ -257,6 +265,9 @@ class MascotaRuntimeModel {
       energiaAlAcostar: energiaAlAcostar ?? this.energiaAlAcostar,
       buffEnergia: buffEnergia ?? this.buffEnergia,
       buffExpira: clearBuffExpira ? null : (buffExpira ?? this.buffExpira),
+      buffBanoExpira: clearBuffBanoExpira
+          ? null
+          : (buffBanoExpira ?? this.buffBanoExpira),
       cortinasAbiertas: cortinasAbiertas ?? this.cortinasAbiertas,
       tapsParaDespetarBase: tapsParaDespetarBase ?? this.tapsParaDespetarBase,
       inicioDescansoTipo: clearInicioDescansoTipo
