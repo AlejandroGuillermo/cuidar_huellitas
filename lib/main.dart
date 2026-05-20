@@ -331,7 +331,7 @@ class _AppLifecycleScopeState extends State<_AppLifecycleScope>
         ),
       ],
       child: MaterialApp.router(
-        title: 'CuidARHuellitas',
+        title: 'CuidAR Huellitas',
         debugShowCheckedModeBanner: false,
         scaffoldMessengerKey: MyApp._messengerKey,
         theme: ThemeData(

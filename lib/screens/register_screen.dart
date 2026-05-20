@@ -160,7 +160,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         return AlertDialog(
           title: const Text('Aviso para madre, padre o tutor'),
           content: const Text(
-            'CuidARHuellitas puede enviar recordatorios locales para volver a cuidar la mascota. No incluiremos datos de salud, rutina ni informacion sensible en el mensaje.',
+            'CuidAR Huellitas puede enviar recordatorios locales para volver a cuidar la mascota. No incluiremos datos de salud, rutina ni informacion sensible en el mensaje.',
           ),
           actions: [
             TextButton(

@@ -108,7 +108,7 @@ class NotificationService {
 
     await _plugin.zonedSchedule(
       careReminderId,
-      'CuidARHuellitas',
+      'CuidAR Huellitas',
       'Tu mascota te espera',
       scheduledTime,
       const NotificationDetails(android: androidDetails, iOS: iosDetails),

@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../core/app_colors.dart';
-import '../core/cosmetic_catalog.dart';
 import '../cubit/pet_cubit.dart';
 import '../cubit/pet_state.dart';
 import '../widgets/pet_avatar_rive.dart';
@@ -83,10 +82,6 @@ class _ArScreenState extends State<ArScreen> {
       builder: (context, petState) {
         final mascota = petState.mascota;
         final petEmoji = mascota?.tipoMascota.toLowerCase() ?? 'dog';
-        final headItemEmoji = CosmeticCatalog.headEmojiFor(
-          mascota?.itemCabezaId,
-        );
-
         return Scaffold(
           backgroundColor: Colors.black,
           body: Stack(
@@ -199,14 +194,6 @@ class _ArScreenState extends State<ArScreen> {
                                         height: 220,
                                       ),
                                     ),
-                                    if (headItemEmoji != null)
-                                      Positioned(
-                                        top: -12,
-                                        child: Text(
-                                          headItemEmoji,
-                                          style: const TextStyle(fontSize: 44),
-                                        ),
-                                      ),
                                   ],
                                 ),
                               ),

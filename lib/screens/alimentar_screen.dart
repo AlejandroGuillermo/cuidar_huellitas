@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 
 import '../application/cubits/pet_world_cubit.dart';
 import '../core/app_colors.dart';
-import '../core/cosmetic_catalog.dart';
 import '../core/disaster_system.dart';
 import '../core/food_catalog.dart';
 import '../cubit/pet_cubit.dart';
@@ -662,9 +661,6 @@ class _AlimentarScreenState extends State<AlimentarScreen>
     return BlocBuilder<PetCubit, PetState>(
       builder: (context, state) {
         final petEmoji = (state.mascota?.tipoMascota ?? 'perro').toLowerCase();
-        final headItemEmoji = CosmeticCatalog.headEmojiFor(
-          state.mascota?.itemCabezaId,
-        );
         return LayoutBuilder(
           builder: (context, constraints) {
             final estaDescansando = context.read<PetCubit>().estaDescansando(
@@ -673,7 +669,6 @@ class _AlimentarScreenState extends State<AlimentarScreen>
             final compact = constraints.maxHeight < 220;
             final veryCompact = constraints.maxHeight < 180;
             final petSize = compact ? 68.0 : 80.0;
-            final hatSize = compact ? 24.0 : 28.0;
             final gap = compact ? 8.0 : 16.0;
             final isCat = _isCatType(petEmoji);
             final isDog = _isDogType(petEmoji);
@@ -705,8 +700,6 @@ class _AlimentarScreenState extends State<AlimentarScreen>
                       isDog: isDog,
                       petEmoji: petEmoji,
                       petSize: petSize,
-                      hatSize: hatSize,
-                      headItemEmoji: headItemEmoji,
                     ),
                     SizedBox(height: compact ? 12 : 14),
                     _buildFeedButton(
@@ -799,8 +792,6 @@ class _AlimentarScreenState extends State<AlimentarScreen>
     required bool isDog,
     required String petEmoji,
     required double petSize,
-    required double hatSize,
-    required String? headItemEmoji,
   }) {
     final sceneWidth = compact ? 180.0 : 220.0;
     final sceneHeight = compact ? 175.0 : 215.0;
@@ -919,14 +910,6 @@ class _AlimentarScreenState extends State<AlimentarScreen>
                                   width: avatarWidth,
                                   height: avatarHeight,
                                 ),
-                                if (headItemEmoji != null)
-                                  Positioned(
-                                    top: compact ? -8 : -10,
-                                    child: Text(
-                                      headItemEmoji,
-                                      style: TextStyle(fontSize: hatSize),
-                                    ),
-                                  ),
                               ],
                             ),
                     ),

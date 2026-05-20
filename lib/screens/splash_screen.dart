@@ -280,7 +280,7 @@ class _SplashScreenState extends State<SplashScreen>
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          'CuidARHuellitas',
+          'CuidAR Huellitas',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: titleColor,

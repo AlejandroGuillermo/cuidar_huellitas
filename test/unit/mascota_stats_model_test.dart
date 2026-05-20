@@ -54,7 +54,7 @@ void main() {
 
     test('valores en límite inferior (0.0) se cargan sin error', () {
       final mapa = Map<String, dynamic>.from(mapaBase)
-        ..updateAll((_, __) => 0.0);
+        ..updateAll((_, _) => 0.0);
       final stats = MascotaStatsModel.fromMap(mapa);
       expect(stats.nivelSalud, 0.0);
       expect(stats.nivelHambre, 0.0);
@@ -62,7 +62,7 @@ void main() {
 
     test('valores en límite superior (100.0) se cargan sin error', () {
       final mapa = Map<String, dynamic>.from(mapaBase)
-        ..updateAll((_, __) => 100.0);
+        ..updateAll((_, _) => 100.0);
       final stats = MascotaStatsModel.fromMap(mapa);
       expect(stats.nivelSalud, 100.0);
       expect(stats.nivelAfecto, 100.0);

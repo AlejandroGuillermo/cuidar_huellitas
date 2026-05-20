@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+
+import '../core/cosmetic_catalog.dart';
+import '../cubit/pet_cubit.dart';
+import '../cubit/pet_state.dart';
 
 class PetAvatarRive extends StatefulWidget {
   const PetAvatarRive({
@@ -87,6 +92,14 @@ class _PetAvatarRiveState extends State<PetAvatarRive>
 
   double get _breathScale => 1 + (_breathController.value * 0.012);
 
+  double get _headAccessoryFontSize {
+    final referenceSize =
+        (widget.width ?? widget.height ?? 140.0).clamp(96.0, 320.0).toDouble();
+    return referenceSize * 0.18;
+  }
+
+  double get _headAccessoryTopOffset => -_headAccessoryFontSize * 0.35;
+
   Widget _buildSvgLayer() {
     return SvgPicture.asset(
       _assetPath,
@@ -105,23 +118,49 @@ class _PetAvatarRiveState extends State<PetAvatarRive>
     );
   }
 
+  Widget _buildAvatarWithAccessory(String? headItemEmoji) {
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
+      children: [
+        _buildSvgLayer(),
+        if (headItemEmoji != null)
+          Positioned(
+            top: _headAccessoryTopOffset,
+            child: Text(
+              headItemEmoji,
+              style: TextStyle(fontSize: _headAccessoryFontSize),
+            ),
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: widget.width,
-      height: widget.height,
-      child: !_isCat
-          ? _buildSvgLayer()
-          : AnimatedBuilder(
-              animation: _breathController,
-              builder: (context, child) {
-                return Transform.scale(
-                  scale: _breathScale,
-                  child: child,
-                );
-              },
-              child: _buildSvgLayer(),
-            ),
+    return BlocBuilder<PetCubit, PetState>(
+      builder: (context, state) {
+        final headItemEmoji = CosmeticCatalog.headEmojiFor(
+          state.mascota?.itemCabezaId,
+        );
+
+        return SizedBox(
+          width: widget.width,
+          height: widget.height,
+          child: !_isCat
+              ? _buildAvatarWithAccessory(headItemEmoji)
+              : AnimatedBuilder(
+                  animation: _breathController,
+                  builder: (context, child) {
+                    return Transform.scale(
+                      scale: _breathScale,
+                      child: child,
+                    );
+                  },
+                  child: _buildAvatarWithAccessory(headItemEmoji),
+                ),
+        );
+      },
     );
   }
 }

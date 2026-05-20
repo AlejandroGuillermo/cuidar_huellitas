@@ -11,7 +11,6 @@ import 'package:cuidar_huellitas/cubit/pet_state.dart';
 import 'package:cuidar_huellitas/cubit/pet_cubit.dart';
 import 'package:cuidar_huellitas/core/app_colors.dart';
 import 'package:cuidar_huellitas/core/app_router.dart';
-import 'package:cuidar_huellitas/core/cosmetic_catalog.dart';
 import 'package:cuidar_huellitas/core/disaster_system.dart';
 import 'package:cuidar_huellitas/domain/entities/pet_world_state.dart';
 import 'package:cuidar_huellitas/domain/enums/pet_activity.dart';
@@ -403,9 +402,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         }
 
         final petEmoji = mascota.tipoMascota.toLowerCase();
-        final headItemEmoji = CosmeticCatalog.headEmojiFor(
-          mascota.itemCabezaId,
-        );
 
         return BlocListener<PetCubit, PetState>(
           listenWhen: (previous, current) =>
@@ -554,16 +550,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                                           width: 230,
                                                           height: 230,
                                                         ),
-                                                        if (headItemEmoji != null)
-                                                          Positioned(
-                                                            top: -16,
-                                                            child: Text(
-                                                              headItemEmoji,
-                                                              style: const TextStyle(
-                                                                fontSize: 42,
-                                                              ),
-                                                            ),
-                                                          ),
                                                       ],
                                                     ),
                                                     const SizedBox(height: 8),
@@ -635,16 +621,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                                         width: 260,
                                                         height: 260,
                                                       ),
-                                                      if (headItemEmoji != null)
-                                                        Positioned(
-                                                          top: -18,
-                                                          child: Text(
-                                                            headItemEmoji,
-                                                            style: const TextStyle(
-                                                              fontSize: 46,
-                                                            ),
-                                                          ),
-                                                        ),
                                                       if (showFeedback != null)
                                                         Positioned(
                                                           top: -30,
@@ -1123,12 +1099,6 @@ class _ProfilePetsSheetState extends State<_ProfilePetsSheet> {
     context.go(AppRoutes.logros);
   }
 
-  void _showPendingMessage(String label) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('$label estara disponible pronto.')));
-  }
-
   @override
   Widget build(BuildContext context) {
     final user = _auth.currentUser;
@@ -1296,8 +1266,6 @@ class _ProfilePetsSheetState extends State<_ProfilePetsSheet> {
                                     },
                                     onAdopt: _openAdoption,
                                     onInfo: _openAchievements,
-                                    onSettings: () =>
-                                        _showPendingMessage('Configuracion'),
                                     onLogout: _signOut,
                                   )
                                 : _PetsTabView(
@@ -1333,7 +1301,6 @@ class _ProfileTabView extends StatelessWidget {
     required this.onShowPets,
     required this.onAdopt,
     required this.onInfo,
-    required this.onSettings,
     required this.onLogout,
   });
 
@@ -1343,7 +1310,6 @@ class _ProfileTabView extends StatelessWidget {
   final VoidCallback onShowPets;
   final VoidCallback onAdopt;
   final VoidCallback onInfo;
-  final VoidCallback onSettings;
   final Future<void> Function() onLogout;
 
   @override
@@ -1542,11 +1508,11 @@ class _ProfileTabView extends StatelessWidget {
                     onTap: onInfo,
                   ),
                   Divider(height: 1, color: Colors.grey.shade200),
-                  _MenuRow(
-                    icon: Icons.settings_outlined,
-                    title: 'Configuracion',
-                    onTap: onSettings,
-                  ),
+                  // _MenuRow(
+                  //   icon: Icons.settings_outlined,
+                  //   title: 'Configuracion',
+                  //   onTap: onSettings,
+                  // ),
                 ],
               ),
             ),
